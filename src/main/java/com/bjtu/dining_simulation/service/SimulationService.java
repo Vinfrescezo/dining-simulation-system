@@ -1,105 +1,97 @@
 package com.bjtu.dining_simulation.service;
 
-import com.bjtu.dining_simulation.config.SimulationConfig;
-import com.bjtu.dining_simulation.logic.MovementEngine;
 import com.bjtu.dining_simulation.model.*;
 import lombok.Getter;
+import lombok.Setter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
-import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 @Service
-@Getter // 自动生成 getGlobalTickCounter() 和 getStudents()
+@Getter 
+@Setter
 public class SimulationService {
 
-    @Autowired private SimulationConfig config;
-    @Autowired private MovementEngine moveEngine;
     @Autowired private ResourceManager resourceManager;
+    @Autowired private TrafficEngine trafficEngine;
+    @Autowired private WaitlistEngine waitlistEngine;
+    @Autowired private StudentStateMachine stateMachine;
 
-    private int globalTickCounter = 0; // 变量名与报错中的 Getter 对应
+    // --- 全局基础数据 ---
+    private int globalTickCounter = 0;
+    private int targetStudentCount = 1500;
+    private int simDurationTick = 3600;
+
+    // --- 统计数据 ---
+    private int generatedCount = 0;
+    private int lostCount = 0;      
+    private int finishedCount = 0;  
+    private int totalQueueTime = 0;
+    private int totalSeatWaitTime = 0;
+    private int totalEatingTime = 0;
+    private int maxCongestion = 0;
+
+    // --- 场内实体 ---
     private final List<Student> students = new CopyOnWriteArrayList<>();
 
-    // 桥接方法：因为 Controller 习惯直接向 Service 要窗口和座位
+    // 桥接方法
     public List<Window> getWindows() { return resourceManager.getWindows(); }
     public List<Seat> getSeats() { return resourceManager.getSeats(); }
 
-    @Scheduled(fixedRate = 1000)
+    /**
+     * 重置与初始化
+     */
+    public void resetSimulation(int studentCount, int windowCount, int durationTick, int seatCount) {
+        this.globalTickCounter = 0;
+        this.generatedCount = 0;
+        this.lostCount = 0;
+        this.finishedCount = 0;
+        this.totalQueueTime = 0;
+        this.totalSeatWaitTime = 0;
+        this.totalEatingTime = 0;
+        this.maxCongestion = 0;
+        this.targetStudentCount = studentCount;
+        this.simDurationTick = durationTick;
+        this.students.clear();
+        
+        resourceManager.initResources(windowCount, seatCount);
+        trafficEngine.reset();
+        waitlistEngine.reset();
+    }
+
+    /**
+     * 核心生命周期节拍器：只负责按顺序调用三大引擎
+     */
+    @Scheduled(fixedRate = 100)
     public void runTick() {
+        if (globalTickCounter >= simDurationTick || 
+           (generatedCount >= targetStudentCount && students.isEmpty())) {
+            return; // 仿真已结束
+        }
+
         globalTickCounter++;
-        if (globalTickCounter % config.getStudentSpawnRate() == 0) spawnStudent();
-        updateStudentStatus();
-    }
+        maxCongestion = Math.max(maxCongestion, students.size());
 
-    private void spawnStudent() {
-        if (resourceManager.isAllWindowFull()) return;
-        Window target = resourceManager.getRandomWindow();
-        String sId = "学生-" + UUID.randomUUID().toString().substring(0, 4);
-        Student s = new Student(sId, config.DOOR_X, config.DOOR_Y, "PATHFINDING", target.getId(), 0);
-        students.add(s);
-        target.getStudentQueue().add(s);
-    }
-
-    private void updateStudentStatus() {
-        for (Student s : students) {
-            switch (s.getStatus()) {
-                case "PATHFINDING":
-                    double winX = s.getTargetId().contains("A") ? 130 : 570;
-                    if (moveEngine.moveTowards(s, winX, config.WINDOW_Y, config.getMoveSpeed())) {
-                        s.setStatus("QUEUEING");
-                    }
-                    break;
-                case "QUEUEING":
-                    Window w = resourceManager.getWindowById(s.getTargetId());
-                    if (resourceManager.isFirstInQueue(w, s)) {
-                        s.setStatus("ORDERING");
-                        s.setRemainingTime(moveEngine.calculateNormalTime(config.getOrderingMu(), config.getOrderingSigma(), 5));
-                    }
-                    break;
-                case "ORDERING":
-                    s.setRemainingTime(s.getRemainingTime() - 1);
-                    if (s.getRemainingTime() <= 0) {
-                        resourceManager.getWindowById(s.getTargetId()).getStudentQueue().poll();
-                        if (resourceManager.hasEmptySeat()) {
-                            resourceManager.tryToOccupySeat(s);
-                            s.setStatus("SEEK_SEAT");
-                        } else {
-                            s.setStatus("WAITING_FOR_SEAT");
-                        }
-                    }
-                    break;
-                case "WAITING_FOR_SEAT":
-                    if (resourceManager.hasEmptySeat()) {
-                        resourceManager.tryToOccupySeat(s);
-                        s.setStatus("SEEK_SEAT");
-                    }
-                    break;
-                case "SEEK_SEAT":
-                    Seat mySeat = resourceManager.findSeatByStudentId(s.getId());
-                    if (mySeat != null) {
-                        double[] pos = resourceManager.getSeatCoordinate(mySeat.getId());
-                        if (moveEngine.moveTowards(s, pos[0], pos[1], config.getMoveSpeed())) {
-                            s.setStatus("EATING");
-                            s.setRemainingTime(moveEngine.calculateNormalTime(config.getEatingMu(), config.getEatingSigma(), 300));
-                        }
-                    }
-                    break;
-                case "EATING":
-                    s.setRemainingTime(s.getRemainingTime() - 1);
-                    if (s.getRemainingTime() <= 0) {
-                        resourceManager.releaseSeat(s.getId());
-                        s.setStatus("LEAVING");
-                    }
-                    break;
-                case "LEAVING":
-                    if (moveEngine.moveTowards(s, config.DOOR_X, config.DOOR_Y, config.getMoveSpeed())) {
-                        students.remove(s);
-                    }
-                    break;
-            }
+        // 1. 流量引擎生成学生
+        trafficEngine.processSpawning(this);
+        // 2. 排号引擎分配座位
+        waitlistEngine.allocateSeatsToWaitingStudents(this);
+        // 3. 状态机引擎推演行为
+        stateMachine.updateStudentStatus(this);
+        
+        if(globalTickCounter % 10 == 0) {
+            System.out.println("--- Tick: " + globalTickCounter + " | 场内人数: " + students.size() + " ---");
         }
     }
+    
+    // --- 提供给子引擎的累加方法 ---
+    public void addGeneratedCount() { this.generatedCount++; }
+    public void addLostCount() { this.lostCount++; }
+    public void addFinishedCount() { this.finishedCount++; }
+    public void addTotalQueueTime(int time) { this.totalQueueTime += time; }
+    public void addTotalSeatWaitTime(int time) { this.totalSeatWaitTime += time; }
+    public void addTotalEatingTime(int time) { this.totalEatingTime += time; }
 }

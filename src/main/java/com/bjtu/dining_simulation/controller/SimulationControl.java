@@ -2,45 +2,106 @@ package com.bjtu.dining_simulation.controller;
 
 import com.bjtu.dining_simulation.service.SimulationService;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.bind.annotation.CrossOrigin;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
 import java.util.Map;
 
-@RestController          // 告诉 Spring Boot 这是一个用来返回数据的 Controller (相当于 @Controller + @ResponseBody)
-@RequestMapping("/api")  // 给所有接口加一个统一的前缀：http://localhost:8080/api/...
-@CrossOrigin             // 允许跨域请求（非常重要！以后你写 Vue 或原生前端网页时，不用这个会报错）
+@RestController          
+@RequestMapping("/api/simulation")  
+@CrossOrigin             
 public class SimulationControl {
 
-    // 自动注入我们写好的“后厨”引擎
     @Autowired
     private SimulationService simulationService;
 
     /**
-     * 接口：获取当前食堂的实时快照数据
-     * 访问地址：http://localhost:8080/api/status
+     * 接收前端大屏的启动配置
+     * 已经补全了 seatCount，与前端校验逻辑完全对齐
      */
-    @GetMapping("/status")
-    public Map<String, Object> getSimulationStatus() {
-        // 创建一个 Map，用于组装返回给前端的数据
-        Map<String, Object> responseData = new HashMap<>();
+    public static class StartConfigDTO {
+        public int studentCount;
+        public int windowCount;
+        public int simDurationTick;
+        public int seatCount; // 对应前端新加的座位控制
+    }
 
-        // 1. 获取当前时间滴答
-        responseData.put("currentTick", simulationService.getGlobalTickCounter());
+    /**
+     * 接口 1：启动/重置仿真
+     * 对应前端：http.post('/api/simulation/start', config)
+     */
+    @PostMapping("/start")
+    public Map<String, Object> startSimulation(@RequestBody StartConfigDTO config) {
+        System.out.println(">>> 收到前端重置指令：窗口数=" + config.windowCount + 
+                           ", 座位数=" + config.seatCount + ", 预计人数=" + config.studentCount);
+        
+        // 兜底默认值（防止前端传空）
+        int seats = config.seatCount > 0 ? config.seatCount : 240;
+        int windows = config.windowCount > 0 ? config.windowCount : 10;
+        int duration = config.simDurationTick > 0 ? config.simDurationTick : 3600;
+        
+        // 调用我们刚刚重构的调度中心进行全局重置
+        simulationService.resetSimulation(config.studentCount, windows, duration, seats);
 
-        // 2. 获取当前在场的所有学生列表
-        responseData.put("students", simulationService.getStudents());
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", "success");
+        response.put("message", "仿真已根据新参数重新启动");
+        // 返回 SERVER_ 开头的 ID，前端 WebSocket 会带着这个 ID 连过来
+        response.put("simId", "SERVER_" + System.currentTimeMillis()); 
+        return response;
+    }
 
-        // 3. 获取所有窗口的排队情况
-        responseData.put("windows", simulationService.getWindows());
+    /**
+     * 接口 2：生成并获取仿真最终报告
+     * 对应前端：在仿真结束时调用此接口，获取数据用于图表展示和 CSV/JSON 下载
+     */
+    @GetMapping("/report")
+    public Map<String, Object> getSimulationReport() {
+        Map<String, Object> report = new HashMap<>();
+        
+        int arrived = simulationService.getGeneratedCount();
+        int served = simulationService.getFinishedCount();
+        int lost = simulationService.getLostCount();
+        
+        // 计算各项平均指标
+        double avgWaitTime = served > 0 ? (double) simulationService.getTotalQueueTime() / served : 0;
+        double avgSeatWaitTime = served > 0 ? (double) simulationService.getTotalSeatWaitTime() / served : 0;
+        double lossRate = arrived > 0 ? (double) lost / arrived : 0;
+        double seatTurnoverRate = !simulationService.getSeats().isEmpty() ? 
+                (double) served / simulationService.getSeats().size() : 0;
 
-        // 4. 获取座位占用情况
-        responseData.put("seats", simulationService.getSeats());
+        // 智能评分逻辑 (完全对齐前端 LocalDiningSimulator 的标准)
+        String score = "运行顺畅";
+        if (lossRate > 0.15 || avgWaitTime > 240) score = "极度拥挤";
+        else if (lossRate > 0.06 || avgWaitTime > 150) score = "偏拥挤";
+        else if (avgWaitTime > 80) score = "基本可控";
 
-        // Spring Boot 会自动把这个 Map 转换成前端能看懂的 JSON 格式
-        return responseData;
+        // 智能优化建议
+        int recommendedWindows = Math.max(0, (int) Math.ceil((avgWaitTime - 120) / 60.0));
+        String suggestion = recommendedWindows > 0 
+            ? "建议增加 " + recommendedWindows + " 个窗口，或将热门菜品拆分至快餐窗口以削峰。" 
+            : "当前窗口配置基本可行，可重点观察座位周转与端盘等座区域。";
+
+        // 组装最终 JSON 报告
+        report.put("simId", "SERVER_" + System.currentTimeMillis());
+        report.put("createdAt", new java.util.Date().toString());
+        report.put("score", score);
+        report.put("suggestion", suggestion);
+        
+        // 核心统计数据汇总
+        Map<String, Object> summary = new HashMap<>();
+        summary.put("avgWaitTime", Math.round(avgWaitTime));
+        summary.put("avgSeatWaitTime", Math.round(avgSeatWaitTime));
+        summary.put("seatTurnoverRate", Double.parseDouble(String.format("%.2f", seatTurnoverRate)));
+        summary.put("lossRate", Double.parseDouble(String.format("%.2f", lossRate)));
+        summary.put("maxCongestion", simulationService.getMaxCongestion());
+        summary.put("generated", arrived);
+        summary.put("finished", served);
+        summary.put("lost", lost);
+        summary.put("served", served);
+        
+        report.put("summary", summary);
+        
+        return report;
     }
 }
