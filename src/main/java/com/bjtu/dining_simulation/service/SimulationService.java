@@ -1,6 +1,13 @@
 package com.bjtu.dining_simulation.service;
 
+import com.bjtu.dining_simulation.engine.TrafficEngine;
+import com.bjtu.dining_simulation.engine.WaitlistEngine;
+import com.bjtu.dining_simulation.machine.StudentStateMachine;
 import com.bjtu.dining_simulation.model.*;
+import com.bjtu.dining_simulation.config.SimulationConfig;
+import com.bjtu.dining_simulation.dto.StartConfigDTO;
+import com.bjtu.dining_simulation.dto.StartResponseDTO;
+
 import lombok.Getter;
 import lombok.Setter;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,7 +26,7 @@ public class SimulationService {
     @Autowired private TrafficEngine trafficEngine;
     @Autowired private WaitlistEngine waitlistEngine;
     @Autowired private StudentStateMachine stateMachine;
-
+    @Autowired private SimulationConfig simulationConfig;
     // --- 全局基础数据 ---
     private int globalTickCounter = 0;
     private int targetStudentCount = 1500;
@@ -41,8 +48,28 @@ public class SimulationService {
     public List<Window> getWindows() { return resourceManager.getWindows(); }
     public List<Seat> getSeats() { return resourceManager.getSeats(); }
 
+    public StartResponseDTO startSimulation(StartConfigDTO config) {
+        // 1. 处理兜底默认值（防止前端传空数据）
+        int seats = config.getSeatCount() > 0 ? config.getSeatCount() : 240;
+        int windows = config.getWindowCount() > 0 ? config.getWindowCount() : 10;
+        int duration = config.getSimDurationTick() > 0 ? config.getSimDurationTick() : 3600;
+        int maxQueue = config.getMaxQueueLength() > 0 ? config.getMaxQueueLength() : 20;
+        simulationConfig.setMaxQueueLength(maxQueue);
+        System.out.println("### 成功更新全局配置！maxQueueLength 现在是: " + simulationConfig.getMaxQueueLength());
+        // 2. 调用你原本写好的底层重置方法
+        this.resetSimulation(config.getStudentCount(), windows, duration, seats);
+
+        // 3. 组装返回给前端的成功响应
+        StartResponseDTO response = new StartResponseDTO();
+        response.setStatus("success");
+        response.setMessage("仿真已根据新参数重新启动");
+        response.setSimId("SERVER_" + System.currentTimeMillis()); 
+        
+        return response;
+    }
+
     /**
-     * 重置与初始化
+     * 底层重置与初始化 (保持不变)
      */
     public void resetSimulation(int studentCount, int windowCount, int durationTick, int seatCount) {
         this.globalTickCounter = 0;
@@ -63,7 +90,7 @@ public class SimulationService {
     }
 
     /**
-     * 核心生命周期节拍器：只负责按顺序调用三大引擎
+     * 核心生命周期节拍器 (保持不变)
      */
     @Scheduled(fixedRate = 100)
     public void runTick() {
@@ -87,7 +114,7 @@ public class SimulationService {
         }
     }
     
-    // --- 提供给子引擎的累加方法 ---
+    // --- 提供给子引擎的累加方法 (保持不变) ---
     public void addGeneratedCount() { this.generatedCount++; }
     public void addLostCount() { this.lostCount++; }
     public void addFinishedCount() { this.finishedCount++; }

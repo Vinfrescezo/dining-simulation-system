@@ -1,8 +1,11 @@
-package com.bjtu.dining_simulation.service;
+package com.bjtu.dining_simulation.engine;
 
 import com.bjtu.dining_simulation.config.SimulationConfig;
 import com.bjtu.dining_simulation.model.Student;
 import com.bjtu.dining_simulation.model.Window;
+import com.bjtu.dining_simulation.service.ResourceManager;
+import com.bjtu.dining_simulation.service.SimulationService;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -38,21 +41,26 @@ public class TrafficEngine {
         spawnAccumulator -= countToSpawn;
 
         for (int i = 0; i < countToSpawn; i++) {
-            Window target = resourceManager.getRandomWindow();
-            if (resourceManager.isAllWindowFull()) {
-                ctx.addGeneratedCount();
-                ctx.addLostCount(); // 队列全满，流失
+            Window targetWindow = resourceManager.getShortestQueueWindow();
+
+            if (targetWindow.getStudentQueue().size() >= config.getMaxQueueLength()) {
+                ctx.addLostCount(); // 流失+1
                 continue;
             }
 
+            ctx.addGeneratedCount(); 
+
             String sId = "学生-" + UUID.randomUUID().toString().substring(0, 4);
-            Student s = new Student(sId, config.DOOR_X, config.DOOR_Y, "PATHFINDING", target.getId(), 0);
-            s.setTargetX(target.getX());
-            s.setTargetY(target.getY() + 50); 
+            Student s = new Student(sId, config.getDOOR_X(), config.getDOOR_Y(), "PATHFINDING", targetWindow.getId(), 0);
+            s.setTargetX(targetWindow.getX());
+            s.setTargetY(targetWindow.getY() + 50); 
+            s.setQueueStartTick(ctx.getGlobalTickCounter());
             
+            // 4. ✅ 先加学生主列表
             ctx.getStudents().add(s);
-            target.getStudentQueue().add(s);
-            ctx.addGeneratedCount();
+            
+            // 5. ✅ 再加窗口队列（顺序不能反）
+            targetWindow.getStudentQueue().add(s);
         }
     }
 }

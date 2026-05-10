@@ -2,9 +2,11 @@ package com.bjtu.dining_simulation.model;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 
 @Data
+@EqualsAndHashCode(of = "id") 
 @AllArgsConstructor
 @NoArgsConstructor
 public class Student {
@@ -20,10 +22,6 @@ public class Student {
 
     // --- 模拟时间与剩余时间 ---
     private int remainingTime; // 点餐或吃饭的剩余tick
-
-    // ==========================================
-    // ?? 新增字段：用于统计分析与报告生成
-    // ==========================================
     private int queueStartTick;     // 开始排队的时间
     private Integer seatWaitStartTick; // 开始等座的时间 (Integer允许为null)
     

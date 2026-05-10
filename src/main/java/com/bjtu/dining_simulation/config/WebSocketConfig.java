@@ -30,6 +30,7 @@ public class WebSocketConfig extends TextWebSocketHandler implements WebSocketCo
 
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
+        // 允许跨域连接 WebSocket
         registry.addHandler(this, "/ws/simulation").setAllowedOrigins("*");
     }
 
@@ -43,12 +44,14 @@ public class WebSocketConfig extends TextWebSocketHandler implements WebSocketCo
         sessions.remove(session);
     }
 
-    @Scheduled(fixedRate = 100) // 建议改成 100ms，画面会丝滑很多
+    @Scheduled(fixedRate = 100) // 100ms 发送频率，保证前端动画丝滑
     public void broadcastStatus() {
         if (sessions.isEmpty()) return;
         
         try {
             Map<String, Object> snapshot = new HashMap<>();
+            
+            // --- 根节点数据 (保留在此处防崩，兼容旧版前端) ---
             snapshot.put("tick", simulationService.getGlobalTickCounter());
             snapshot.put("generated", simulationService.getGeneratedCount());
             snapshot.put("finished", simulationService.getFinishedCount());
@@ -86,23 +89,33 @@ public class WebSocketConfig extends TextWebSocketHandler implements WebSocketCo
             }).collect(Collectors.toList());
             snapshot.put("seats", seatList);
 
-            // 4. 统计面板
+            // --- 4. 统计面板 (核心修复区) ---
             Map<String, Object> stats = new HashMap<>();
             stats.put("activeCount", studentList.size());
             stats.put("occupiedSeats", seatList.stream().filter(st -> (boolean)st.get("occupied")).count());
             stats.put("waitingSeatCount", studentList.stream().filter(st -> "WAITING_FOR_SEAT".equals(st.get("s"))).count());
             stats.put("maxCongestion", simulationService.getMaxCongestion());
             
+            stats.put("generated", simulationService.getGeneratedCount());
+            stats.put("finished", simulationService.getFinishedCount());
+            stats.put("lost", simulationService.getLostCount());
+
+            // 计算进度百分比
             double progress = simulationService.getSimDurationTick() == 0 ? 0 : 
                              (simulationService.getGlobalTickCounter() * 100.0) / simulationService.getSimDurationTick();
             stats.put("progress", Math.min(100, Math.round(progress)));
+            
+            // 将 stats 挂载到最终数据结构上
             snapshot.put("stats", stats);
 
+            // 转化为 JSON 字符串并向所有连接的客户端广播
             String jsonStr = objectMapper.writeValueAsString(snapshot);
             TextMessage message = new TextMessage(jsonStr);
             for (WebSocketSession session : sessions) {
                 if (session.isOpen()) session.sendMessage(message);
             }
-        } catch (Exception e) { e.printStackTrace(); }
+        } catch (Exception e) { 
+            e.printStackTrace(); 
+        }
     }
 }

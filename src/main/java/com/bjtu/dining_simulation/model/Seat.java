@@ -11,10 +11,6 @@ public class Seat {
     private String id;             // 座位唯一标识
     private boolean isOccupied;    // 占用标志位（true 为有人，false 为空位）
     private String studentId;      // 记录当前占用的学生 ID
-    
-    // ==========================================
-    // ?? 新增字段：座位在前端画布上的绝对物理坐标
-    // ==========================================
     private double x;
     private double y;
 

@@ -1,4 +1,4 @@
-package com.bjtu.dining_simulation.logic;
+package com.bjtu.dining_simulation.engine;
 
 import com.bjtu.dining_simulation.model.Student;
 import org.springframework.stereotype.Component;

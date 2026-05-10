@@ -1,9 +1,11 @@
-package com.bjtu.dining_simulation.service;
+package com.bjtu.dining_simulation.engine;
 
 import com.bjtu.dining_simulation.config.SimulationConfig;
-import com.bjtu.dining_simulation.logic.MovementEngine;
 import com.bjtu.dining_simulation.model.Seat;
 import com.bjtu.dining_simulation.model.Student;
+import com.bjtu.dining_simulation.service.ResourceManager;
+import com.bjtu.dining_simulation.service.SimulationService;
+
 import lombok.Getter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -17,7 +19,6 @@ public class WaitlistEngine {
     @Autowired 
     private ResourceManager resourceManager;
     
-    // --- 补全缺失的注入 ---
     @Autowired 
     private MovementEngine moveEngine;
     

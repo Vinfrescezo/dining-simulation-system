@@ -12,9 +12,8 @@ public class Window {
     private String id;
     private double x;
     private double y;
-    private Queue<Student> studentQueue; 
+    private Queue<Student> studentQueue;
     
-    // 完美对齐前端的数据结构
     private String orderingStudentId = null; 
     private int served = 0; 
     

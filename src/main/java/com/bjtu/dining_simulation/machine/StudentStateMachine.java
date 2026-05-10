@@ -1,12 +1,18 @@
-package com.bjtu.dining_simulation.service;
+package com.bjtu.dining_simulation.machine;
 
 import com.bjtu.dining_simulation.config.SimulationConfig;
-import com.bjtu.dining_simulation.logic.MovementEngine;
+import com.bjtu.dining_simulation.engine.MovementEngine;
+import com.bjtu.dining_simulation.engine.WaitlistEngine;
 import com.bjtu.dining_simulation.model.Seat;
 import com.bjtu.dining_simulation.model.Student;
 import com.bjtu.dining_simulation.model.Window;
+import com.bjtu.dining_simulation.service.ResourceManager;
+import com.bjtu.dining_simulation.service.SimulationService;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+
+import java.util.ArrayList;
 import java.util.List;
 
 @Component
@@ -39,7 +45,7 @@ public class StudentStateMachine {
 
         // 2. refreshQueueTargets (刷新排队目标的绝对坐标)
         for (Window win : resourceManager.getWindows()) {
-            List<Student> queue = (List<Student>) win.getStudentQueue();
+            List<Student> queue = new ArrayList<>(win.getStudentQueue());
             for (int i = 0; i < queue.size(); i++) {
                 Student s = queue.get(i);
                 if ("ORDERING".equals(s.getStatus())) continue;
@@ -100,7 +106,6 @@ public class StudentStateMachine {
         }
     }
 
-    // 完美复刻前端的 finishOrdering
     private void finishOrdering(SimulationService ctx, Window win, Student student) {
         win.getStudentQueue().remove(student);
         win.setOrderingStudentId(null);
