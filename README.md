@@ -1,81 +1,15 @@
-🏢 BJTU-Dining-Simulation | 北交大智慧食堂数字孪生仿真系统
-本系统是一个基于 有限状态机 (FSM) 驱动的食堂就餐流数字孪生仿真平台。系统通过后端 Spring Boot 驱动复杂的学生行为逻辑，并利用 Vue 3 + Canvas API 实现高频实时监控看板。
+食堂就餐仿真系统 - 源代码技术文档1. 项目概述本系统是一个基于 Spring Boot 框架开发的离散事件仿真系统，旨在模拟大学食堂（如 BJTU 食堂）在高峰时段的学生流转、排队打饭、找座就餐及流失情况。系统采用“前端实时渲染 + 后端逻辑计算”的架构，通过 WebSocket 实现数据的实时推送。2. 目录结构与类说明
 
-🌟 项目亮点
-精细化状态机控制：严格遵循学生行为生命周期逻辑，涵盖 PATHFINDING（寻路）、QUEUEING（排队）、ORDERING（打饭）、WAITING（等座）、EATING（就餐）及 LEAVING（离开）全流程。
+📂 config (核心配置)负责系统的全局规则设定与通信配置。SimulationConfig.java: 全局配置中心。存储了诸如门口坐标、移动速度、排队上限、耐心阈值等静态参数。WebSocketConfig.java: 配置 WebSocket 终点，确保后端计算的每一帧数据（坐标、状态）能实时同步到前端界面。
 
-职责分离架构：后端采用解耦设计，将物理移动引擎（MovementEngine）、资源调度（ResourceManager）与仿真服务（SimulationService）独立，具备极高的可维护性。
+📂 controller (接口层)系统对外暴露的“水龙头”。SimulationController.java: 接收前端发送的控制指令，如“开始仿真”、“重置系统”等，是前后端交互的唯一入口。
 
-工业级看板设计：前端采用现代 UI 设计语言，支持实时 Tick 统计、窗口负载可视化、座位占用热力图以及动态系统日志流。
+📂 dto (数据传输对象)定义了前后端通信的“协议格式”，起到解耦和安全防护作用。StartConfigDTO.java: 接收前端配置参数（如总人数、窗口数）。StartResponseDTO.java: 后端启动成功的反馈。SimulationReportDTO.java: 仿真结束后的统计报告数据（流失率、平均等待时间等）。
 
-实时数据同步：基于定时任务（Scheduled Tasks）与 RESTful 轮询机制，确保前后端数据每秒高频同步。
+📂 engine (物理逻辑引擎)负责仿真世界中的“数学与物理”逻辑，不涉及业务状态变化。TrafficEngine.java: 人流发生器。基于双峰分布曲线计算每一时刻应产生的新生数量，并执行排队人数上限拦截（流失逻辑）。MovementEngine.java: 位移计算器。负责学生在地图上的平滑移动计算（基于 $x, y$ 坐标的向量移动）。WaitlistEngine.java: 候补管理。处理当没有座位时，端着盘子的学生在候餐区的队列管理。
 
-🛠️ 技术栈
-后端 (Backend)
-核心框架：Java 17 / Spring Boot 3.x
+📂 machine (状态机)负责仿真世界中的“智能体大脑”。StudentStateMachine.java: 学生行为状态机。这是系统最核心的逻辑，定义了学生从 入场 -> 寻路 -> 排队 -> 点餐 -> 等座 -> 吃饭 -> 离场 的所有状态切换逻辑以及耐心耗尽的流失逻辑。
 
-辅助工具：Lombok (简化代码)
+📂 model (实体模型)仿真世界的“基础物质”。Student.java: 定义学生属性（坐标、状态、ID、耐心值、剩余时间等）。Window.java: 定义打饭窗口属性（坐标、队列情况、当前服务对象）。Seat.java: 定义座位属性（坐标、占用状态、所属学生 ID）。
 
-调度引擎：Spring Scheduled (Tick 驱动)
-
-数据结构：CopyOnWriteArrayList (确保高并发场景下的数据一致性)
-
-前端 (Frontend)
-框架：Vue 3 (Composition API)
-
-构建工具：Vite
-
-图形渲染：HTML5 Canvas API
-
-样式处理：CSS3 Flexbox / Grid & Scoped CSS
-
-📂 项目结构
-后端目录结构
-Plaintext
-src/main/java/com/bjtu/dining_simulation/
-├── config/        # 仿真参数配置 (步长、概率分布等)
-├── control/       # API 控制器 (提供状态查询接口)
-├── logic/         # 核心物理引擎 (坐标插值计算)
-├── model/         # 数据实体 (学生、窗口、座位)
-└── service/       # 业务逻辑层 (状态机驱动与资源管理)
-前端目录结构
-Plaintext
-src/
-├── components/    # 核心组件 (DiningDashboard.vue)
-├── App.vue        # 入口页面
-└── main.js        # Vue 配置
-🚀 快速开始
-1. 启动后端 (Spring Boot)
-确保已安装 JDK 17+ 和 Maven。
-
-在 VS Code 中打开后端目录。
-
-运行 DiningSimulationApplication.java。
-
-默认 API 地址：http://localhost:8080/api/status。
-
-2. 启动前端 (Vue 3)
-进入前端目录：cd frontend。
-
-安装依赖：npm install。
-
-启动开发服务器：npm run dev。
-
-在浏览器访问：http://localhost:5173。
-
-🧠 核心逻辑：有限状态机 (FSM)
-系统内部运行着一套严密的逻辑流：
-
-判定流失：若所有窗口排队人数超过 maxCapacity，新生实体直接销毁。
-
-动态寻路：根据分配的窗口坐标，利用 MovementEngine 进行平滑坐标插值。
-
-等座唤醒：若打饭结束无余位，学生进入 WAITING_FOR_SEAT 状态，由座位释放信号实时唤醒。
-
-资源回收：学生离开出口后，系统自动清理内存引用，实现完整的仿真生命周期管理。
-
-📸 系统预览
-(此处建议放上你运行时的屏幕截图，会非常亮眼！)
-
-🤝 贡献与反馈
-本系统为北交大计算机实训项目。如有任何改进建议，欢迎提交 Pull Request 或通过 VS Code 调试控制台反馈。
+📂 service (业务编排层)负责协调各个引擎和状态机工作。SimulationService.java: 仿真管家。包含主循环逻辑（Tick），驱动所有 Engine 和 StateMachine 按时间步进工作。ResourceManager.java: 资源管理器。负责窗口初始化、座位布局生成以及“最短队列”窗口的实时搜索。3. 核心逻辑流程图系统运行遵循以下时钟步进（Tick）循环：数据注入：Controller 接收 StartConfigDTO 参数。人流控制：TrafficEngine 根据时间曲线决定是否生成学生。行为驱动：StudentStateMachine 检查每个学生，如果排队太久则设为 LOST。物理位移：MovementEngine 根据学生当前状态计算下一帧坐标。数据同步：SimulationService 将当前所有实体状态打包，通过 WebSocket 推送。4. 技术亮点解耦设计：物理移动（Engine）与行为决策（Machine）分离。高可配置性：通过 SimulationConfig 实现了不改代码即可调整仿真参数。健壮性：通过 DTO 确保了非法输入不会干扰底层仿真逻辑。
