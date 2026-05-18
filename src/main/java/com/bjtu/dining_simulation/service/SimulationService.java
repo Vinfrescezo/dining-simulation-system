@@ -55,7 +55,6 @@ public class SimulationService {
         int duration = config.getSimDurationTick() > 0 ? config.getSimDurationTick() : 3600;
         int maxQueue = config.getMaxQueueLength() > 0 ? config.getMaxQueueLength() : 20;
         simulationConfig.setMaxQueueLength(maxQueue);
-        System.out.println("### 成功更新全局配置！maxQueueLength 现在是: " + simulationConfig.getMaxQueueLength());
         // 2. 调用你原本写好的底层重置方法
         this.resetSimulation(config.getStudentCount(), windows, duration, seats);
 
