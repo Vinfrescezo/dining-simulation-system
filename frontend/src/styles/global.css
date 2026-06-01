@@ -1,0 +1,218 @@
+:root {
+  --bjtu-blue: #004098;
+  --bjtu-blue-dark: #06275f;
+  --bjtu-blue-soft: #e9f1ff;
+  --ink: #0f172a;
+  --muted: #64748b;
+  --line: rgba(15, 23, 42, 0.1);
+  --panel: rgba(255, 255, 255, 0.9);
+  --panel-strong: #ffffff;
+  --green: #16a34a;
+  --red: #dc2626;
+  --orange: #f97316;
+  --purple: #7c3aed;
+  --shadow: 0 24px 72px rgba(15, 23, 42, 0.13);
+  font-family: 'Source Han Sans CN', 'Noto Sans SC', Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  color: var(--ink);
+  background: #f0f5ff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #app {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  min-width: 1280px;
+  background:
+    radial-gradient(ellipse at 8% 6%, rgba(0, 64, 152, 0.22), transparent 34%),
+    radial-gradient(ellipse at 94% 16%, rgba(30, 64, 175, 0.16), transparent 38%),
+    radial-gradient(ellipse at 50% 90%, rgba(0, 64, 152, 0.08), transparent 40%),
+    linear-gradient(145deg, #f5f9ff 0%, #eaf2ff 50%, #f6faff 100%);
+}
+
+button, input, select {
+  font: inherit;
+}
+
+button {
+  border: none;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+/* ── App shell ── */
+.app-shell {
+  min-height: 100vh;
+  padding: 28px 40px 48px;
+}
+
+/* ── Page card ── */
+.page-card {
+  position: relative;
+  width: min(1680px, calc(100vw - 80px));
+  margin: 26px auto 0;
+  border: 1px solid rgba(255, 255, 255, 0.82);
+  border-radius: 32px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(20px);
+  overflow: hidden;
+}
+
+.page-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(120deg, rgba(255, 255, 255, 0.92), transparent 30%),
+    radial-gradient(circle at 88% 14%, rgba(0, 64, 152, 0.07), transparent 26%);
+}
+
+.page-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* ── Buttons ── */
+.primary-btn,
+.secondary-btn,
+.ghost-btn,
+.danger-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 46px;
+  padding: 0 22px;
+  border-radius: 16px;
+  font-weight: 700;
+  font-size: 15px;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+
+.primary-btn {
+  color: #fff;
+  background: linear-gradient(135deg, #004098, #0b63ce);
+  box-shadow: 0 12px 32px rgba(0, 64, 152, 0.28);
+}
+
+.secondary-btn {
+  color: #fff;
+  background: linear-gradient(135deg, #0f172a, #334155);
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.2);
+}
+
+.danger-btn {
+  color: #fff;
+  background: linear-gradient(135deg, #dc2626, #f97316);
+  box-shadow: 0 12px 32px rgba(220, 38, 38, 0.2);
+}
+
+.ghost-btn {
+  color: var(--bjtu-blue);
+  background: rgba(0, 64, 152, 0.08);
+  border: 1.5px solid rgba(0, 64, 152, 0.18);
+}
+
+.primary-btn:hover,
+.secondary-btn:hover,
+.ghost-btn:hover,
+.danger-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 18px 40px rgba(0, 64, 152, 0.22);
+}
+
+/* ── Fields ── */
+.field {
+  display: grid;
+  gap: 8px;
+}
+
+.field label {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.field input,
+.field select {
+  width: 100%;
+  height: 52px;
+  padding: 0 16px;
+  border: 1.5px solid rgba(15, 23, 42, 0.13);
+  border-radius: 16px;
+  outline: none;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.95);
+  transition: border 0.16s ease, box-shadow 0.16s ease;
+  font-size: 15px;
+}
+
+.field input:focus,
+.field select:focus {
+  border-color: rgba(0, 64, 152, 0.55);
+  box-shadow: 0 0 0 4px rgba(0, 64, 152, 0.1);
+}
+
+.field .error {
+  min-height: 18px;
+  color: var(--red);
+  font-size: 12px;
+}
+
+/* ── Badge ── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--bjtu-blue);
+  background: rgba(0, 64, 152, 0.09);
+  border: 1px solid rgba(0, 64, 152, 0.16);
+  letter-spacing: 0.02em;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(0.85); }
+}
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+@media (max-width: 1400px) {
+  body { min-width: 1200px; }
+  .app-shell { padding-inline: 28px; }
+  .page-card { width: calc(100vw - 56px); }
+}
+
+@media (max-width: 1200px) {
+  body { min-width: 1080px; }
+  .app-shell { padding-inline: 20px; }
+  .page-card { width: calc(100vw - 40px); }
+}

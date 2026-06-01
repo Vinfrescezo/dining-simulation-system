@@ -1,0 +1,23 @@
+CREATE TABLE IF NOT EXISTS sim_report_history (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    sim_id VARCHAR(64) NOT NULL,
+    created_at VARCHAR(32),
+    score VARCHAR(32),
+    bottleneck_type VARCHAR(64),
+    bottleneck_reason VARCHAR(512),
+    suggestion VARCHAR(1024),
+    hot_window_suggestion VARCHAR(512),
+    avg_wait_time DOUBLE,
+    avg_seat_wait_time DOUBLE,
+    avg_eating_time DOUBLE,
+    seat_turnover_rate DOUBLE,
+    loss_rate DOUBLE,
+    max_congestion INT,
+    max_seat_waiting INT,
+    generated INT,
+    finished INT,
+    lost INT,
+    queue_lost INT,
+    seat_abandoned INT,
+    served INT
+);
