@@ -1,3 +1,13 @@
-"data/" 
-"*.db" 
-"frontend/node_modules/" 
+# 忽略数据库文件
+data/
+*.db
+*.mv.db
+
+# 忽略前端依赖和临时文件
+frontend/node_modules/
+frontend/dist/
+
+# 忽略 Java 编译生成的类文件
+backend/target/
+backend/.mvn/
+*.class
