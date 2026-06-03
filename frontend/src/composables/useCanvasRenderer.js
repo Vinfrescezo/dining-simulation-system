@@ -331,18 +331,10 @@ function heatColor(t) {
 }
 
 function drawSeatHeatmap(ctx, layout, snapshotSeats, tick) {
-  const occMap = new Map(snapshotSeats.map(s => [s.id, s.occupancyTicks ?? 0]));
-  const values = snapshotSeats.map(s => s.occupancyTicks ?? 0);
-  const maxOcc = Math.max(1, ...values);
-  const sorted = [...values].sort((a, b) => a - b);
-  const p10 = sorted[Math.floor(sorted.length * 0.1)] || 0;
-  const p90 = sorted[Math.floor(sorted.length * 0.9)] || maxOcc;
-  const range = Math.max(1, p90 - p10);
+  const heatMap = new Map(snapshotSeats.map(s => [s.id, s.heatIndex ?? 0]));
 
   for (const seat of layout.seats) {
-    const occ = occMap.get(seat.id) ?? 0;
-    const raw = Math.max(0, Math.min(1, (occ - p10) / range));
-    const ratio = Math.pow(raw, 0.55);
+    const ratio = Math.min(1, heatMap.get(seat.id) ?? 0);
 
     const glowR = 20 + ratio * 10;
     const grad = ctx.createRadialGradient(seat.x, seat.y, 0, seat.x, seat.y, glowR);
@@ -364,7 +356,7 @@ function drawSeatHeatmap(ctx, layout, snapshotSeats, tick) {
     ctx.fill();
     ctx.stroke();
 
-    if (occ === 0) {
+    if (ratio < 0.01) {
       ctx.fillStyle = 'rgba(148,163,184,0.35)';
       roundRect(ctx, x, y, size, size, 5);
       ctx.fill();

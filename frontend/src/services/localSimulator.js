@@ -82,7 +82,7 @@ export class LocalDiningSimulator {
       qLenSamples: [],
       waitSamples: []
     }));
-    this.seats = this.layout.seats.map(seat => ({ ...seat, occupiedBy: null, occupancyTicks: 0 }));
+    this.seats = this.layout.seats.map(seat => ({ ...seat, occupiedBy: null, occupancyTicks: 0, heatIndex: 0 }));
     this.waitingSeatQueue = [];
     this.trend = [];
     this.totalQueueTime = 0;
@@ -435,7 +435,12 @@ export class LocalDiningSimulator {
     this.maxCongestion = Math.max(this.maxCongestion, activeCount);
 
     for (const seat of this.seats) {
-      if (seat.occupiedBy !== null) seat.occupancyTicks += 1;
+      if (seat.occupiedBy !== null) {
+        seat.occupancyTicks += 1;
+        seat.heatIndex = seat.heatIndex * 0.99 + 0.01;
+      } else {
+        seat.heatIndex *= 0.99;
+      }
     }
 
     for (const win of this.windows) {
@@ -468,7 +473,7 @@ export class LocalDiningSimulator {
       lost: this.lost,
       students: studentList,
       windows: this.windows.map(win => ({ id: win.id, dishName: win.dishName, popularityRank: win.popularityRank, popularityScore: win.popularityScore, qLen: this.waitingQueueLength(win), served: win.served, avgWaitTime: Math.round(this.avgQueueTimeIncludingCurrent(win)), peakQueueLength: win.qLenSamples.length ? Math.max(...win.qLenSamples) : this.waitingQueueLength(win) })),
-      seats: this.seats.map(seat => ({ id: seat.id, x: seat.x, y: seat.y, occupied: seat.occupiedBy !== null, occupancyTicks: seat.occupancyTicks })),
+      seats: this.seats.map(seat => ({ id: seat.id, x: seat.x, y: seat.y, occupied: seat.occupiedBy !== null, heatIndex: seat.heatIndex })),
       stats: {
         activeCount: studentList.length,
         occupiedSeats: this.seats.filter(seat => seat.occupiedBy !== null).length,

@@ -19,6 +19,7 @@ export class EventPlayer {
     this.layout = {
       entrance: layout.entrance || { x: 70, y: 852 },
       exit:     layout.exit     || { x: 1530, y: 852 },
+      exitLane: layout.exitLane || { x: 1430, y: 300, w: 44, h: 500 },
       windows:  (layout.windows || []).map(w => ({
         ...w,
         queueX:      w.queueX      ?? w.x,
@@ -54,6 +55,10 @@ export class EventPlayer {
     this.lastFrameTime = 0;
     this.speedFactor = 1;
     this.paused = false;
+
+    this.seatHeatIndex = new Map();
+    for (const s of this.layout.seats) this.seatHeatIndex.set(s.id, 0);
+    this.lastEmittedTick = 0;
 
     this.windowStats = new Map();
     for (const w of this.layout.windows) {
@@ -116,16 +121,22 @@ export class EventPlayer {
       perStudent.get(evt.studentId).push(evt);
     }
 
+    const exitLane = this.layout.exitLane;
+
     for (const [studentId, evts] of perStudent) {
       const waypoints = [];
       let windowId = null;
 
-      for (const evt of evts) {
+      for (let ei = 0; ei < evts.length; ei++) {
+        const evt = evts[ei];
+        const nextEvt = ei + 1 < evts.length ? evts[ei + 1] : null;
+
         switch (evt.type) {
           case 'ARRIVE':
             windowId = evt.targetId;
             waypoints.push({ tick: evt.tick, x: this.layout.entrance.x, y: this.layout.entrance.y, state: PATHFINDING, windowId });
             break;
+
           case 'QUEUE': {
             const win = this.windowMap.get(windowId);
             if (win) {
@@ -134,57 +145,64 @@ export class EventPlayer {
             }
             break;
           }
+
           case 'ORDER_START': {
             const win = this.windowMap.get(windowId);
             const x = win ? win.x : evt.x;
             const y = win ? win.y + 28 : evt.y;
-            const walkTicks = 6;
-            const walkStart = Math.max((waypoints.at(-1)?.tick ?? 0) + 1, evt.tick - walkTicks);
             const prevWp = waypoints.at(-1);
-            if (prevWp && prevWp.state === QUEUEING) {
+            if (prevWp && prevWp.state === QUEUEING && prevWp.tick < evt.tick) {
+              const walkTicks = 6;
+              const walkStart = Math.max(prevWp.tick + 1, evt.tick - walkTicks);
               waypoints.push({ tick: walkStart, x: prevWp.x, y: prevWp.y, state: QUEUEING, windowId, isQueue: true });
               waypoints.push({ tick: walkStart, x: prevWp.x, y: prevWp.y, state: PATHFINDING, windowId });
             }
             waypoints.push({ tick: evt.tick, x, y, state: ORDERING, windowId });
             break;
           }
+
           case 'ORDER_END': {
-            const ox = waypoints.at(-1)?.x ?? evt.x;
-            const oy = waypoints.at(-1)?.y ?? evt.y;
-            waypoints.push({ tick: evt.tick, x: ox, y: oy, state: SEEK_SEAT, windowId });
-            // 步行动画限制在仿真时间内，避免产生超出 totalTicks 的 waypoint
-            const stepTick = Math.min(evt.tick + 5, this.totalTicks);
-            if (stepTick > evt.tick) {
-              waypoints.push({ tick: stepTick, x: ox, y: oy + 80, state: SEEK_SEAT, windowId });
-            }
+            const prevWp = waypoints.at(-1);
+            const ox = prevWp?.x ?? evt.x;
+            const oy = prevWp?.y ?? evt.y;
+            const orderDur = evt.tick - (prevWp?.tick ?? evt.tick);
+            const earlyDep = Math.min(4, Math.max(0, orderDur - 2));
+            const depTick = evt.tick - earlyDep;
+            const gap = nextEvt ? nextEvt.tick - depTick - 1 : 12;
+            const stepTicks = Math.max(2, Math.min(10, gap));
+            waypoints.push({ tick: depTick, x: ox, y: oy, state: SEEK_SEAT, windowId });
+            waypoints.push({ tick: depTick + stepTicks, x: ox, y: oy + 70, state: SEEK_SEAT, windowId });
             break;
           }
+
           case 'SIT':
             waypoints.push({ tick: evt.tick, x: evt.x, y: evt.y, state: EATING, seatId: evt.targetId });
             break;
+
           case 'WAIT_SEAT':
             waypoints.push({ tick: evt.tick,
               x: 30 + Math.abs(hashCode(studentId) % 60),
               y: 350 + Math.abs(hashCode(studentId) % 400),
               state: WAITING_FOR_SEAT });
             break;
+
           case 'SEAT_ABANDON':
-            waypoints.push({ tick: evt.tick, x: evt.x, y: evt.y, state: LEAVING });
-            waypoints.push({ tick: evt.tick + 60, x: this.layout.exit.x, y: this.layout.exit.y, state: '_GONE' });
+            this._addLeavePath(waypoints, evt.tick, evt.x, evt.y, exitLane, null);
             break;
+
           case 'LEAVE': {
-            // 估算步行时长：学生从当前位置走到出口（约 5px/tick）
-            const walkTicks = Math.max(1, Math.round(
-              Math.hypot(this.layout.exit.x - evt.x, this.layout.exit.y - evt.y) / 5
-            ));
-            waypoints.push({ tick: evt.tick,             x: evt.x,              y: evt.y,              state: LEAVING });
-            waypoints.push({ tick: evt.tick + walkTicks, x: this.layout.exit.x, y: this.layout.exit.y, state: '_GONE' });
+            const exitEvt = evts.slice(ei + 1).find(e => e.type === 'EXIT');
+            this._addLeavePath(waypoints, evt.tick, evt.x, evt.y, exitLane, exitEvt);
             break;
           }
-          case 'EXIT':
-            // 后端确认学生已到出口——直接消失（可能比上面估算的 _GONE 更早或更晚）
-            waypoints.push({ tick: evt.tick, x: this.layout.exit.x, y: this.layout.exit.y, state: '_GONE' });
+
+          case 'EXIT': {
+            const last = waypoints.at(-1);
+            if (!last || last.state !== '_GONE') {
+              waypoints.push({ tick: evt.tick, x: this.layout.exit.x, y: this.layout.exit.y, state: '_GONE' });
+            }
             break;
+          }
         }
       }
       if (waypoints.length > 0) {
@@ -192,12 +210,34 @@ export class EventPlayer {
       }
     }
 
-    // 兜底：仿真提前结束时，无终止事件的学生（SEEK_SEAT/EATING 等）在 totalTicks 时强制消失
     for (const [, tl] of this.timelines) {
       const last = tl.waypoints.at(-1);
       if (!last || last.state === '_GONE') continue;
       tl.waypoints.push({ tick: this.totalTicks, x: last.x, y: last.y, state: '_GONE' });
     }
+  }
+
+  _addLeavePath(waypoints, startTick, startX, startY, exitLane, exitEvt) {
+    const laneX = exitLane.x + exitLane.w / 2;
+    const laneY = Math.min(this.layout.exit.y - 24, Math.max(exitLane.y + 18, startY));
+    const dist1 = Math.hypot(laneX - startX, laneY - startY);
+    const dist2 = Math.hypot(this.layout.exit.x - laneX, this.layout.exit.y - laneY);
+    const totalDist = dist1 + dist2;
+
+    let t1, endTick;
+    if (exitEvt && exitEvt.tick > startTick) {
+      const total = exitEvt.tick - startTick;
+      t1 = totalDist > 0 ? Math.max(1, Math.round(total * dist1 / totalDist)) : Math.round(total / 2);
+      endTick = exitEvt.tick;
+    } else {
+      t1 = Math.max(5, Math.round(dist1 / 5));
+      const t2 = Math.max(5, Math.round(dist2 / 5));
+      endTick = startTick + t1 + t2;
+    }
+
+    waypoints.push({ tick: startTick, x: startX, y: startY, state: LEAVING });
+    waypoints.push({ tick: startTick + t1, x: laneX, y: laneY, state: LEAVING });
+    waypoints.push({ tick: endTick, x: this.layout.exit.x, y: this.layout.exit.y, state: '_GONE' });
   }
 
   start() {
@@ -238,6 +278,9 @@ export class EventPlayer {
   emitFrame() {
     const t = this.currentTick;
 
+    const tickDelta = Math.max(0, Math.floor(t) - this.lastEmittedTick);
+    this.lastEmittedTick = Math.floor(t);
+
     const windowQueues  = new Map();
     const seatOccupancy = new Map();
     for (const w of this.layout.windows) windowQueues.set(w.id, []);
@@ -260,6 +303,18 @@ export class EventPlayer {
       if (this._currentState(tl, t) === EATING) {
         const seatId = this._currentSeatId(tl, t);
         if (seatId) seatOccupancy.set(seatId, sid);
+      }
+    }
+
+    if (tickDelta > 0) {
+      const decay = Math.pow(0.99, tickDelta);
+      for (const [seatId] of this.seatHeatIndex) {
+        const prev = this.seatHeatIndex.get(seatId);
+        if (seatOccupancy.has(seatId)) {
+          this.seatHeatIndex.set(seatId, prev * decay + (1 - decay));
+        } else {
+          this.seatHeatIndex.set(seatId, prev * decay);
+        }
       }
     }
 
@@ -314,7 +369,8 @@ export class EventPlayer {
       windows: Array.from(this.windowStats.values()),
       seats: this.layout.seats.map(seat => ({
         id: seat.id, x: seat.x, y: seat.y,
-        occupied: seatOccupancy.has(seat.id)
+        occupied: seatOccupancy.has(seat.id),
+        heatIndex: this.seatHeatIndex.get(seat.id) || 0
       })),
       stats: {
         activeCount:      students.length,
