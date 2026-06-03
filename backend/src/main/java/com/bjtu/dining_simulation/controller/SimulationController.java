@@ -32,7 +32,9 @@ public class SimulationController {
         System.out.println("6. 等座区上限 (maxSeatWaitCapacity): " + config.getMaxSeatWaitCapacity());
         System.out.println("7. 等座耐心 (maxSeatWaitTick):    " + config.getMaxSeatWaitTick());
         System.out.println("=".repeat(30) + "\n");
-        return simulationService.startSimulation(config);
+        StartResponseDTO response = simulationService.startSimulation(config);
+        response.setReport(reportService.generateAndSaveFinalReport());
+        return response;
     }
 
     @GetMapping("/report")

@@ -44,9 +44,9 @@ export function toPayload(config) {
     simDurationTick: Number(config.simDurationTick),
     seatCount: Number(config.seatCount),
     maxQueueLength: Number(config.maxQueueCapacity),
+    maxQueueCapacity: Number(config.maxQueueCapacity),
     maxSeatWaitCapacity: Number(config.maxSeatWaitCapacity),
     maxSeatWaitTick: Number(config.maxSeatWaitTick),
-    renderThreshold: Number(config.renderThreshold),
-    tickInterval: Number(config.tickInterval)
+    renderThreshold: Number(config.renderThreshold)
   };
 }

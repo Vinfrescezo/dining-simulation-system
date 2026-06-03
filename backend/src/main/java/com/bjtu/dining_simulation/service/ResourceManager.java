@@ -1,10 +1,13 @@
 package com.bjtu.dining_simulation.service;
 
+import com.bjtu.dining_simulation.config.SimulationConfig;
 import com.bjtu.dining_simulation.model.*;
 import lombok.Getter;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @Getter
@@ -12,6 +15,8 @@ public class ResourceManager {
     private final List<Window> windows = new ArrayList<>();
     private final List<Seat> seats = new ArrayList<>();
     private final Random random = new Random();
+
+    @Autowired private SimulationConfig simulationConfig;
 
     private final double CANVAS_WIDTH = 1600;
     private final double CANVAS_HEIGHT = 900;
@@ -285,6 +290,75 @@ public class ResourceManager {
 
     public Seat findReservedSeatByStudentId(String studentId) {
         return seats.stream().filter(s -> studentId.equals(s.getReservedBy())).findFirst().orElse(null);
+    }
+
+    public Map<String, Object> buildLayout() {
+        Map<String, Object> layout = new LinkedHashMap<>();
+
+        layout.put("width", CANVAS_WIDTH);
+        layout.put("height", CANVAS_HEIGHT);
+        layout.put("entrance", Map.of("x", simulationConfig.getDOOR_X(), "y", simulationConfig.getDOOR_Y()));
+        layout.put("exit",     Map.of("x", simulationConfig.getEXIT_X(), "y", simulationConfig.getEXIT_Y()));
+        layout.put("serviceArea", serviceArea);
+        layout.put("seatArea", seatArea);
+        layout.put("waitingZone", waitingZone);
+        layout.put("exitLane", Map.of("x", 1430.0, "y", 300.0, "w", 44.0, "h", 500.0));
+
+        double queueStartY = serviceArea.get("y") + 155.0;
+
+        List<Map<String, Object>> winList = windows.stream().map(w -> {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", w.getId());
+            m.put("x",  w.getX());
+            m.put("y",  w.getY());
+            m.put("dishName",        w.getDishName());
+            m.put("popularityRank",  w.getPopularityRank());
+            m.put("popularityScore", w.getPopularityScore());
+            m.put("queueX",      w.getX());
+            m.put("queueStartY", queueStartY);
+            m.put("queueGap",    12);
+            return m;
+        }).collect(Collectors.toList());
+        layout.put("windows", winList);
+
+        int seatCount = seats.size();
+        int tableCount = (int) Math.ceil(seatCount / 4.0);
+        int[] grid = chooseBestGrid(tableCount, seatArea.get("w"), seatArea.get("h"));
+        int tableCols = grid[0];
+        int tableRows = grid[1];
+        double iPadX = 28, iPadY = 30, gapX = 12, gapY = 12;
+        double uW = seatArea.get("w") - iPadX * 2 - gapX * (tableCols - 1);
+        double uH = seatArea.get("h") - iPadY * 2 - gapY * (tableRows - 1);
+        double cW = uW / tableCols, cH = uH / tableRows;
+        double tW = Math.min(48, Math.max(26, cW * 0.44));
+        double tH = Math.min(34, Math.max(20, cH * 0.34));
+
+        List<Map<String, Object>> tableList = new ArrayList<>();
+        for (int i = 0; i < tableCount; i++) {
+            int col = i % tableCols;
+            int row = i / tableCols;
+            Map<String, Object> t = new LinkedHashMap<>();
+            t.put("id", "T" + (i + 1));
+            t.put("x", seatArea.get("x") + iPadX + col * (cW + gapX) + cW / 2);
+            t.put("y", seatArea.get("y") + iPadY + row * (cH + gapY) + cH / 2);
+            t.put("w", tW);
+            t.put("h", tH);
+            tableList.add(t);
+        }
+        layout.put("tables", tableList);
+
+        List<Map<String, Object>> seatList = seats.stream().map(s -> {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", s.getId());
+            m.put("x",  s.getX());
+            m.put("y",  s.getY());
+            m.put("position", s.getPosition());
+            m.put("tableId", s.getTableId());
+            return m;
+        }).collect(Collectors.toList());
+        layout.put("seats", seatList);
+
+        return layout;
     }
 
     public Window getBestQueueWindow(double startX, double startY, int maxQueueLength, String preferredWindowId) {

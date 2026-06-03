@@ -3,13 +3,13 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import CanvasLegend from '../components/CanvasLegend.vue';
 import MetricCard from '../components/MetricCard.vue';
 import { LocalDiningSimulator } from '../services/localSimulator';
-import { createSimulationSocket } from '../services/api';
+import { EventPlayer } from '../services/eventPlayer';
 import { renderCanteen } from '../composables/useCanvasRenderer';
 
 const props = defineProps({
-  config: { type: Object, required: true },
-  simId: { type: String, default: '' },
-  useLocalFallback: { type: Boolean, default: true }
+  config:           { type: Object,  required: true },
+  useLocalFallback: { type: Boolean, default: true },
+  serverData:       { type: Object,  default: null }
 });
 
 const emit = defineEmits(['finished', 'restart']);
@@ -21,27 +21,30 @@ const speedFactor = ref(1);
 const heatmapOn = ref(false);
 const connectionStatus = ref('准备中');
 const reportRequesting = ref(false);
-const runningMode = ref(props.useLocalFallback ? '本地演示' : '后端 WebSocket');
+const serverReport = ref(null);
+const backendLayout = ref(null);
+const runningMode = ref(props.useLocalFallback ? '本地演示' : '后端事件流');
 const trendHistory = ref([]);
 const arrivalSamples = ref([]);
 const windowSamples = ref(new Map());
 const speedOptions = [0.5, 1, 2, 4, 8];
 
-let simulator = null;
-let socketClient = null;
+let simulator = null;   // LocalDiningSimulator instance
+let player = null;      // EventPlayer instance
 let renderRaf = 0;
-let lastStaticSeats = [];
-let lastStaticWindows = [];
 let lastGeneratedCount = 0;
 let pendingArrivalCount = 0;
 let lastArrivalSampleTick = -1;
 const ARRIVAL_SAMPLE_INTERVAL = 10;
 
-const activeCount = computed(() => snapshot.value?.stats?.activeCount ?? snapshot.value?.students?.length ?? 0);
-const occupiedSeats = computed(() => snapshot.value?.stats?.occupiedSeats ?? 0);
-const waitingSeatCount = computed(() => snapshot.value?.stats?.waitingSeatCount ?? 0);
-const avgWaitTime = computed(() => snapshot.value?.stats?.avgWaitTime ?? 0);
+// ── Computed ──────────────────────────────────────────────────────────────
+const activeCount     = computed(() => snapshot.value?.stats?.activeCount ?? snapshot.value?.students?.length ?? 0);
+const occupiedSeats   = computed(() => snapshot.value?.stats?.occupiedSeats ?? 0);
+const waitingSeatCount= computed(() => snapshot.value?.stats?.waitingSeatCount ?? 0);
+
+const avgWaitTime     = computed(() => snapshot.value?.stats?.avgWaitTime ?? 0);
 const avgSeatWaitTime = computed(() => snapshot.value?.stats?.avgSeatWaitTime ?? 0);
+
 function formatTickDuration(value) {
   const totalSeconds = Math.round(Number(value || 0));
   const minutes = Math.floor(totalSeconds / 60);
@@ -49,31 +52,34 @@ function formatTickDuration(value) {
   if (minutes <= 0) return `${seconds}秒`;
   return `${minutes}分${String(seconds).padStart(2, '0')}秒`;
 }
-const avgWaitDisplay = computed(() => formatTickDuration(avgWaitTime.value));
+const avgWaitDisplay     = computed(() => formatTickDuration(avgWaitTime.value));
 const avgSeatWaitDisplay = computed(() => formatTickDuration(avgSeatWaitTime.value));
-const seatAbandoned = computed(() => snapshot.value?.stats?.seatAbandoned ?? snapshot.value?.seatAbandoned ?? 0);
+const seatAbandoned  = computed(() => snapshot.value?.stats?.seatAbandoned ?? 0);
 const bottleneckType = computed(() => snapshot.value?.stats?.bottleneckType ?? '运行监测中');
-const progress = computed(() => snapshot.value?.stats?.progress ?? Math.min(100, Math.round(((snapshot.value?.tick ?? 0) / props.config.simDurationTick) * 100)));
+const progress       = computed(() =>
+  snapshot.value?.stats?.progress ??
+  Math.min(100, Math.round(((snapshot.value?.tick ?? 0) / props.config.simDurationTick) * 100))
+);
 const lossRate = computed(() => {
   const generated = snapshot.value?.generated ?? 0;
-  const lost = snapshot.value?.lost ?? 0;
+  const lost      = snapshot.value?.lost ?? 0;
   return generated ? ((lost / generated) * 100).toFixed(1) : '0.0';
 });
-const renderMode = computed(() => activeCount.value > props.config.renderThreshold ? '圆点' : '人物');
+const renderMode = computed(() =>
+  activeCount.value > (props.config.renderThreshold ?? 300) ? '圆点' : '人物'
+);
 const hotWindows = computed(() => (snapshot.value?.windows ?? [])
   .filter(win => win.popularityRank && win.popularityRank <= 6)
   .sort((a, b) => a.popularityRank - b.popularityRank)
   .slice(0, 6));
 
-const arrivalSeries = computed(() => arrivalSamples.value.slice(-64));
-const latestArrival = computed(() => arrivalSeries.value.at(-1)?.arrivals ?? 0);
-const peakArrival = computed(() => arrivalSeries.value.reduce((max, item) => Math.max(max, item.arrivals), 0));
+const arrivalSeries   = computed(() => arrivalSamples.value.slice(-64));
+const latestArrival   = computed(() => arrivalSeries.value.at(-1)?.arrivals ?? 0);
+const peakArrival     = computed(() => arrivalSeries.value.reduce((max, item) => Math.max(max, item.arrivals), 0));
 const arrivalPolyline = computed(() => {
   const series = arrivalSeries.value;
   if (series.length < 2) return '';
-  const width = 220;
-  const height = 64;
-  const pad = 6;
+  const width = 220, height = 64, pad = 6;
   const max = Math.max(1, ...series.map(item => item.arrivals));
   return series.map((item, index) => {
     const x = pad + (index / Math.max(1, series.length - 1)) * (width - pad * 2);
@@ -82,6 +88,7 @@ const arrivalPolyline = computed(() => {
   }).join(' ');
 });
 
+// ── Rendering ──────────────────────────────────────────────────────────────
 function scheduleRender(data) {
   if (renderRaf) cancelAnimationFrame(renderRaf);
   renderRaf = requestAnimationFrame(() => {
@@ -90,24 +97,15 @@ function scheduleRender(data) {
   });
 }
 
+// ── Snapshot handler (shared by both local and EventPlayer) ────────────────
 function handleSnapshot(data) {
   if (data?.type === 'CONTROL_ACK') {
     if (data.command === 'SPEED') speedFactor.value = data.speedFactor ?? speedFactor.value;
     return;
   }
   if (data?.type === 'ERROR') {
-    connectionStatus.value = data.message || '后端控制消息错误';
+    connectionStatus.value = data.message || '错误';
     reportRequesting.value = false;
-    return;
-  }
-  if (data?.type === 'REPORT') {
-    reportRequesting.value = false;
-    finish(data.report || buildBackendMissingReport());
-    return;
-  }
-  if (data?.type === 'INIT') {
-    lastStaticSeats = data.seats ?? lastStaticSeats;
-    lastStaticWindows = data.windows ?? lastStaticWindows;
     return;
   }
 
@@ -117,53 +115,29 @@ function handleSnapshot(data) {
   nextTick(() => scheduleRender(normalized));
 
   if (data?.type === 'FINISHED' || data?.finished === true || data?.done === true) {
-    if (!props.useLocalFallback && !data.report) {
-      finish(buildBackendMissingReport());
-    } else {
-      finish(data.report || buildFrontendReport());
-    }
+    finish(data.report || buildLocalReport());
   }
 }
 
-function mergeSeatOccupancy(data) {
-  if (data.seats) return data.seats;
-  const rawSeats = lastStaticSeats ?? [];
-  const occupiedSet = new Set(data.occupiedSeatIds ?? []);
-  const reservedSet = new Set(data.reservedSeatIds ?? []);
-  return rawSeats.map(seat => ({
-    ...seat,
-    occupied: occupiedSet.has(seat.id),
-    reserved: reservedSet.has(seat.id)
-  }));
-}
-
 function normalizeSnapshot(data) {
-  const mergedSeats = mergeSeatOccupancy(data);
-  const windows = data.windows?.length ? data.windows : lastStaticWindows;
   return {
-    tick: data.tick ?? 0,
-    generated: data.generated ?? data.stats?.generated ?? 0,
+    tick:     data.tick ?? 0,
+    generated:data.generated ?? data.stats?.generated ?? 0,
     finished: data.finishedCount ?? data.finished ?? data.stats?.finished ?? 0,
-    lost: data.lost ?? data.lossCount ?? data.stats?.lost ?? 0,
+    lost:     data.lost ?? data.lossCount ?? data.stats?.lost ?? 0,
     students: data.students ?? [],
-    windows,
-    seats: mergedSeats,
+    windows:  data.windows ?? [],
+    seats:    data.seats ?? [],
     stats: {
-      activeCount: data.stats?.activeCount ?? data.students?.length ?? 0,
-      occupiedSeats: data.stats?.occupiedSeats ?? mergedSeats.filter?.(item => item.occupied)?.length ?? 0,
+      activeCount:      data.stats?.activeCount ?? data.students?.length ?? 0,
+      occupiedSeats:    data.stats?.occupiedSeats ?? 0,
       waitingSeatCount: data.stats?.waitingSeatCount ?? data.waitingSeatCount ?? 0,
-      searchingSeatCount: data.stats?.searchingSeatCount ?? 0,
-      reservedSeats: data.stats?.reservedSeats ?? 0,
-      avgWaitTime: data.stats?.avgWaitTime ?? 0,
-      avgSeatWaitTime: data.stats?.avgSeatWaitTime ?? 0,
-      avgEatingTime: data.stats?.avgEatingTime ?? 0,
-      maxCongestion: data.stats?.maxCongestion ?? 0,
-      maxSeatWaiting: data.stats?.maxSeatWaiting ?? 0,
-      seatAbandoned: data.stats?.seatAbandoned ?? data.seatAbandoned ?? 0,
-      progress: data.stats?.progress ?? Math.min(100, Math.round(((data.tick ?? 0) / props.config.simDurationTick) * 100)),
-      bottleneckType: data.stats?.bottleneckType ?? '运行监测中',
-      bottleneckReason: data.stats?.bottleneckReason ?? '',
-      topHotWindowSuggestion: data.stats?.topHotWindowSuggestion ?? ''
+      avgWaitTime:      data.stats?.avgWaitTime ?? 0,
+      avgSeatWaitTime:  data.stats?.avgSeatWaitTime ?? 0,
+      maxCongestion:    data.stats?.maxCongestion ?? 0,
+      seatAbandoned:    data.stats?.seatAbandoned ?? data.seatAbandoned ?? 0,
+      progress:         data.stats?.progress ?? Math.min(100, Math.round(((data.tick ?? 0) / props.config.simDurationTick) * 100)),
+      bottleneckType:   data.stats?.bottleneckType ?? '运行监测中',
     }
   };
 }
@@ -178,15 +152,14 @@ function collectHistory(data) {
   const currentTick = data.tick ?? 0;
   const shouldSample = lastArrivalSampleTick < 0
     || currentTick - lastArrivalSampleTick >= ARRIVAL_SAMPLE_INTERVAL
-    || data.finished === true
-    || data.type === 'FINISHED';
+    || data.finished === true || data.type === 'FINISHED';
 
   if (shouldSample) {
     trendHistory.value.push({
       tick: currentTick,
-      activeCount: data.stats.activeCount,
-      occupiedSeats: data.stats.occupiedSeats,
-      waitingSeatCount: data.stats.waitingSeatCount,
+      activeCount:      data.stats?.activeCount ?? 0,
+      occupiedSeats:    data.stats?.occupiedSeats ?? 0,
+      waitingSeatCount: data.stats?.waitingSeatCount ?? 0,
       generated: currentGenerated
     });
     arrivalSamples.value.push({ tick: currentTick, arrivals: pendingArrivalCount });
@@ -194,13 +167,13 @@ function collectHistory(data) {
     lastArrivalSampleTick = currentTick;
     if (arrivalSamples.value.length > 120) arrivalSamples.value.shift();
   }
-
   for (const win of data.windows || []) {
     if (!windowSamples.value.has(win.id)) windowSamples.value.set(win.id, []);
     windowSamples.value.get(win.id).push(win.qLen ?? 0);
   }
 }
 
+// ── Mode: Local simulation ────────────────────────────────────────────────
 function startLocal() {
   runningMode.value = '本地演示';
   connectionStatus.value = '运行中';
@@ -211,104 +184,84 @@ function startLocal() {
   simulator.start();
 }
 
-function startWebSocket() {
-  runningMode.value = '后端 WebSocket';
-  connectionStatus.value = '连接中';
-  socketClient = createSimulationSocket({
-    simId: props.simId,
-    onOpen: () => {
-      connectionStatus.value = '已连接';
-      socketClient?.send('START', { simId: props.simId });
+// ── Mode: Backend event-stream playback (serverData 已在 ConfigPage 拿到) ──
+function startBackend() {
+  runningMode.value = '后端事件流';
+  connectionStatus.value = '回放中';
+  serverReport.value = props.serverData.report || null;
+  player = new EventPlayer(props.serverData, props.config, {
+    onSnapshot: (data) => {
+      snapshot.value = data;
+      collectHistory(data);
+      renderCanteen(canvasRef.value, data, props.config, {
+        heatmap: heatmapOn.value,
+        layout: backendLayout.value
+      });
     },
-    onMessage: handleSnapshot,
-    onClose: () => { connectionStatus.value = '已断开'; },
-    onError: () => { connectionStatus.value = '连接失败'; }
+    onFinish: (report) => {
+      connectionStatus.value = '已完成';
+      finish(report || serverReport.value);
+    }
   });
+  backendLayout.value = player.getRenderLayout();
+  player.start();
 }
 
+// ── Controls ──────────────────────────────────────────────────────────────
 function togglePause() {
   paused.value = !paused.value;
   simulator?.setPaused(paused.value);
-  socketClient?.send(paused.value ? 'PAUSE' : 'RESUME', { simId: props.simId });
+  player?.setPaused(paused.value);
 }
 
 function changeSpeed(factor) {
   speedFactor.value = factor;
   simulator?.setSpeedFactor(factor);
-  socketClient?.send('SPEED', { simId: props.simId, factor });
+  player?.setSpeedFactor(factor);
 }
 
 function generateCurrentReport() {
   paused.value = true;
   simulator?.setPaused(true);
-  if (props.useLocalFallback) {
-    finish(buildFrontendReport('阶段性报告'));
+  player?.setPaused(true);
+  if (props.useLocalFallback || !serverReport.value) {
+    finish(buildLocalReport('阶段性报告'));
     return;
   }
-  reportRequesting.value = true;
-  connectionStatus.value = '生成报告中';
-  socketClient?.send('PAUSE', { simId: props.simId });
-  socketClient?.send('GENERATE_REPORT', { simId: props.simId });
+  finish(serverReport.value);
 }
 
 function finish(report) {
   cleanup();
-  emit('finished', report || (props.useLocalFallback ? buildFrontendReport() : buildBackendMissingReport()));
+  emit('finished', report ?? buildLocalReport());
 }
 
-function buildBackendMissingReport() {
-  return {
-    simId: props.simId,
-    createdAt: new Date().toLocaleString(),
-    source: 'backend-missing',
-    reportType: '阶段性报告',
-    reportNote: '前端没有收到后端返回的报告对象，所以生成了缺失提示。',
-    score: '报告未返回',
-    suggestion: '后端模式下报告必须由后端生成。当前未收到 FINISHED 报告，请检查 WebSocket 结束推送或后端日志。',
-    summary: {
-      avgWaitTime: snapshot.value?.stats?.avgWaitTime ?? 0,
-      avgSeatWaitTime: snapshot.value?.stats?.avgSeatWaitTime ?? 0,
-      seatTurnoverRate: 0, lossRate: 0,
-      maxCongestion: snapshot.value?.stats?.maxCongestion ?? 0,
-      generated: snapshot.value?.generated ?? 0,
-      lost: snapshot.value?.lost ?? 0,
-      finished: snapshot.value?.finished ?? 0
-    },
-    trend: trendHistory.value,
-    windowPerformance: []
-  };
-}
-
-function buildFrontendReport(reportType = '最终报告') {
+function buildLocalReport(reportType = '最终报告') {
   const generated = snapshot.value?.generated ?? 0;
-  const lost = snapshot.value?.lost ?? 0;
+  const lost      = snapshot.value?.lost ?? 0;
   const maxCongestion = trendHistory.value.reduce((max, item) => Math.max(max, item.activeCount), 0);
   const lossRateValue = generated ? lost / generated : 0;
   const avgQueueMap = Array.from(windowSamples.value.entries()).map(([id, samples]) => ({
     id,
-    dishName: snapshot.value?.windows?.find(win => win.id === id)?.dishName ?? id,
-    popularityRank: snapshot.value?.windows?.find(win => win.id === id)?.popularityRank ?? 99,
+    dishName:       snapshot.value?.windows?.find(w => w.id === id)?.dishName ?? id,
+    popularityRank: snapshot.value?.windows?.find(w => w.id === id)?.popularityRank ?? 99,
     avgQueueLength: samples.length ? samples.reduce((a, b) => a + b, 0) / samples.length : 0,
     avgWaitTime: 0,
-    totalServedCount: snapshot.value?.windows?.find(win => win.id === id)?.served ?? 0
+    totalServedCount: snapshot.value?.windows?.find(w => w.id === id)?.served ?? 0
   }));
-  const score = lossRateValue > 0.12 ? '极度拥挤' : lossRateValue > 0.05 ? '偏拥挤' : '基本可控';
   return {
-    simId: props.simId,
+    simId: `SIM_${Date.now()}`,
     createdAt: new Date().toLocaleString(),
     source: 'local',
     reportType,
-    reportNote: reportType === '阶段性报告' ? '本报告在本地演示运行中生成，统计数据为当前阶段累计结果。' : '本报告在本地演示结束后生成。',
-    config: props.config,
-    score,
-    suggestion: lossRateValue > 0.08 ? '建议增加 1—2 个窗口，并观察端盘等座区的瞬时峰值。' : '当前配置基本可行，建议保留监控数据进行多轮对比。',
+    score: lossRateValue > 0.12 ? '极度拥挤' : lossRateValue > 0.05 ? '偏拥挤' : '基本可控',
+    suggestion: lossRateValue > 0.08 ? '建议增加 1—2 个窗口，观察等座区瞬时峰值。' : '当前配置基本可行，建议保留监控数据进行多轮对比。',
     summary: {
-      avgWaitTime: snapshot.value?.stats?.avgWaitTime ?? 0,
+      avgWaitTime:     snapshot.value?.stats?.avgWaitTime ?? 0,
       avgSeatWaitTime: snapshot.value?.stats?.avgSeatWaitTime ?? 0,
       seatTurnoverRate: props.config.seatCount ? (generated - lost) / props.config.seatCount : 0,
       lossRate: lossRateValue, maxCongestion,
-      generated, lost,
-      served: generated - lost,
+      generated, lost, served: generated - lost,
       finished: snapshot.value?.finished ?? 0
     },
     trend: trendHistory.value,
@@ -320,17 +273,14 @@ function buildFrontendReport(reportType = '最终报告') {
 function cleanup() {
   if (renderRaf) cancelAnimationFrame(renderRaf);
   renderRaf = 0;
-  simulator?.stop();
-  simulator = null;
-  socketClient?.close();
-  socketClient = null;
+  simulator?.stop();  simulator = null;
+  player?.stop();     player = null;
 }
 
 onMounted(() => {
-  if (props.useLocalFallback) startLocal();
-  else startWebSocket();
+  if (props.useLocalFallback || !props.serverData) startLocal();
+  else startBackend();
 });
-
 onBeforeUnmount(cleanup);
 </script>
 
@@ -403,7 +353,7 @@ onBeforeUnmount(cleanup);
     <aside class="side-panel right-panel">
       <div class="panel-section control-section">
         <div class="control-status">
-          <span class="conn-dot" :class="connectionStatus === '运行中' || connectionStatus === '已连接' ? 'conn-ok' : 'conn-idle'"></span>
+          <span class="conn-dot" :class="connectionStatus === '运行中' || connectionStatus === '回放中' ? 'conn-ok' : 'conn-idle'"></span>
           <span>{{ connectionStatus }}</span>
           <strong class="speed-display">{{ speedFactor }}×</strong>
         </div>
@@ -684,6 +634,7 @@ onBeforeUnmount(cleanup);
   border: 1px solid rgba(0, 64, 152, 0.12);
   background: #f8fbff;
 }
+
 
 /* ── Control section (right panel) ── */
 .control-status {

@@ -1,5 +1,8 @@
 package com.bjtu.dining_simulation.dto;
+
 import lombok.Data;
+import java.util.List;
+import java.util.Map;
 
 @Data
 public class StartResponseDTO {
@@ -9,4 +12,8 @@ public class StartResponseDTO {
     private String message;
     private String simId;
     private Object data;
+    private int totalTicks;
+    private Map<String, Object> layout;
+    private List<SimulationEventDTO> events;
+    private SimulationReportDTO report;
 }

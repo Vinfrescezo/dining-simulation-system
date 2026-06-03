@@ -17,6 +17,7 @@ public class TrafficEngine {
 
     @Autowired private SimulationConfig config;
     @Autowired private ResourceManager resourceManager;
+    @Autowired private SimulationEventLog eventLog;
 
     private final Random random = new Random();
 
@@ -41,6 +42,7 @@ public class TrafficEngine {
 
             if (targetWindow == null) {
                 ctx.addQueueLostCount();
+                eventLog.record(ctx.getGlobalTickCounter(), "LOST", "lost-" + ctx.getGeneratedCount(), null, 0, 0);
                 continue;
             }
 
@@ -55,6 +57,7 @@ public class TrafficEngine {
             ctx.getStudents().add(s);
             targetWindow.getStudentQueue().add(s);
             targetWindow.updatePeakQueueLength();
+            eventLog.record(ctx.getGlobalTickCounter(), "ARRIVE", sId, targetWindow.getId(), config.getDOOR_X(), config.getDOOR_Y());
         }
     }
 

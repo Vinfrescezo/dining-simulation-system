@@ -8,9 +8,9 @@ import ReportPage from './views/ReportPage.vue';
 const state = reactive({
   page: 'config',
   config: null,
-  simId: '',
   report: null,
-  useLocalFallback: true
+  useLocalFallback: true,
+  serverData: null
 });
 
 const pageTitle = computed(() => ({
@@ -21,8 +21,8 @@ const pageTitle = computed(() => ({
 
 function handleStarted(payload) {
   state.config = payload.config;
-  state.simId = payload.simId;
-  state.useLocalFallback = payload.useLocalFallback;
+  state.useLocalFallback = payload.useLocalFallback ?? true;
+  state.serverData = payload.serverData ?? null;
   state.report = null;
   state.page = 'monitor';
 }
@@ -35,7 +35,7 @@ function handleFinished(report) {
 function restart() {
   state.page = 'config';
   state.report = null;
-  state.simId = '';
+  state.serverData = null;
 }
 
 function backToMonitor() {
@@ -55,8 +55,8 @@ function backToMonitor() {
     <MonitorPage
       v-else-if="state.page === 'monitor'"
       :config="state.config"
-      :sim-id="state.simId"
       :use-local-fallback="state.useLocalFallback"
+      :server-data="state.serverData"
       @finished="handleFinished"
       @restart="restart"
     />

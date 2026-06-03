@@ -2,6 +2,7 @@ package com.bjtu.dining_simulation.machine;
 
 import com.bjtu.dining_simulation.config.SimulationConfig;
 import com.bjtu.dining_simulation.engine.MovementEngine;
+import com.bjtu.dining_simulation.engine.SimulationEventLog;
 import com.bjtu.dining_simulation.engine.WaitlistEngine;
 import com.bjtu.dining_simulation.model.Seat;
 import com.bjtu.dining_simulation.model.Student;
@@ -26,6 +27,7 @@ public class StudentStateMachine {
     @Autowired private MovementEngine moveEngine;
     @Autowired private ResourceManager resourceManager;
     @Autowired private WaitlistEngine waitlistEngine;
+    @Autowired private SimulationEventLog eventLog;
 
     public void updateStudentStatus(SimulationService ctx) {
         Set<String> livingIds = ctx.getStudents().stream().map(Student::getId).collect(Collectors.toSet());
@@ -36,7 +38,11 @@ public class StudentStateMachine {
                 if (arrived) {
                     if ("PATHFINDING".equals(s.getStatus())) {
                         s.setStatus("QUEUEING");
+                        eventLog.record(ctx.getGlobalTickCounter(), "QUEUE", s.getId(),
+                                s.getChosenWindowId() != null ? s.getChosenWindowId() : s.getTargetId(),
+                                s.getX(), s.getY());
                     } else {
+                        eventLog.record(ctx.getGlobalTickCounter(), "EXIT", s.getId(), null, s.getX(), s.getY());
                         ctx.getStudents().remove(s);
                         ctx.addFinishedCount();
                     }
@@ -98,6 +104,7 @@ public class StudentStateMachine {
                     next.setTargetY(win.getY() + 28);
                     next.setX(win.getX());
                     next.setY(win.getY() + 28);
+                    eventLog.record(ctx.getGlobalTickCounter(), "ORDER_START", next.getId(), win.getId(), win.getX(), win.getY() + 28);
 
                     int orderingTime = moveEngine.calculateNormalTime(
                             config.getOrderingMu() + win.getServiceWeight() * 2.0,
@@ -124,6 +131,7 @@ public class StudentStateMachine {
                 if (s.getRemainingTime() <= 0) {
                     resourceManager.releaseSeat(s.getId());
                     ctx.addTotalEatingTime(s.getEatingDuration());
+                    eventLog.record(ctx.getGlobalTickCounter(), "LEAVE", s.getId(), null, s.getX(), s.getY());
                     s.setStatus("LEAVING");
                     s.setTargetX(config.getEXIT_X());
                     s.setTargetY(config.getEXIT_Y());
@@ -141,6 +149,7 @@ public class StudentStateMachine {
             if (arrived) {
                 resourceManager.markReservedSeatOccupied(student);
                 student.setStatus("EATING");
+                eventLog.record(ctx.getGlobalTickCounter(), "SIT", student.getId(), reservedSeat.getId(), student.getX(), student.getY());
                 int eatingTime = moveEngine.calculateNormalTime(config.getEatingMu(), config.getEatingSigma(), 90);
                 student.setEatingDuration(eatingTime);
                 student.setRemainingTime(eatingTime);
@@ -173,6 +182,7 @@ public class StudentStateMachine {
         win.getStudentQueue().remove(student);
         win.setOrderingStudentId(null);
         win.setServed(win.getServed() + 1);
+        eventLog.record(ctx.getGlobalTickCounter(), "ORDER_END", student.getId(), win.getId(), student.getX(), student.getY());
 
         Seat reserved = resourceManager.reserveSeatForStudent(student);
         if (reserved != null) {
@@ -203,12 +213,14 @@ public class StudentStateMachine {
             student.setSeatWaitStartTick(ctx.getGlobalTickCounter());
             student.setSeatSearchStartTick(-1);
             waitlistEngine.joinWaitlist(student.getId());
+            eventLog.record(ctx.getGlobalTickCounter(), "WAIT_SEAT", student.getId(), null, student.getX(), student.getY());
         } else {
             student.setStatus("LEAVING");
             student.setTargetX(config.getEXIT_X());
             student.setTargetY(config.getEXIT_Y());
             student.setSeatSearchStartTick(-1);
             ctx.addSeatAbandonCount();
+            eventLog.record(ctx.getGlobalTickCounter(), "SEAT_ABANDON", student.getId(), null, student.getX(), student.getY());
         }
     }
 

@@ -20,6 +20,7 @@ public class WaitlistEngine {
     @Autowired private ResourceManager resourceManager;
     @Autowired private MovementEngine moveEngine;
     @Autowired private SimulationConfig config;
+    @Autowired private SimulationEventLog eventLog;
 
     @Getter
     private final List<String> waitingSeatQueue = new ArrayList<>();
@@ -77,6 +78,7 @@ public class WaitlistEngine {
             }
             if (s.getSeatWaitStartTick() != null && ctx.getGlobalTickCounter() - s.getSeatWaitStartTick() >= config.getMaxSeatWaitTick()) {
                 iterator.remove();
+                eventLog.record(ctx.getGlobalTickCounter(), "SEAT_ABANDON", s.getId(), null, s.getX(), s.getY());
                 s.setStatus("LEAVING");
                 s.setTargetX(config.getEXIT_X());
                 s.setTargetY(config.getEXIT_Y());

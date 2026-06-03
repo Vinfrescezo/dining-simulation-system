@@ -1,5 +1,5 @@
 <script setup>
-import { reactive, ref, watch } from 'vue';
+import { reactive, ref } from 'vue';
 import logoUrl from '../assets/cs_logo_2025_blue.png';
 import { DEFAULT_CONFIG } from '../utils/constants';
 import { toPayload, validateConfig } from '../utils/validators';
@@ -69,7 +69,6 @@ const form = reactive({
   maxSeatWaitCapacity: DEFAULT_CONFIG.maxSeatWaitCapacity,
   maxSeatWaitTick: DEFAULT_CONFIG.maxSeatWaitTick,
   renderThreshold: DEFAULT_CONFIG.renderThreshold,
-  tickInterval: DEFAULT_CONFIG.tickInterval,
   mode: 'local-first'
 });
 
@@ -103,31 +102,28 @@ async function submit() {
   setErrors(result.errors);
   if (!result.valid) return;
 
-  loading.value = true;
-  backendHint.value = '';
-
-  const preferLocal = form.mode === 'local';
-  const allowFallback = form.mode !== 'backend' && import.meta.env.VITE_ENABLE_LOCAL_FALLBACK !== 'false';
-
-  if (!preferLocal) {
-    try {
-      const response = await startSimulation(config);
-      const simId = response?.data?.simId || response?.simId || `SIM_${Date.now()}`;
-      emit('started', { config, simId, useLocalFallback: false });
-      loading.value = false;
-      return;
-    } catch (error) {
-      if (!allowFallback) {
-        backendHint.value = '后端暂不可用，请检查服务是否已启动。';
-        loading.value = false;
-        return;
-      }
-      backendHint.value = '未连接到后端，已使用本地演示。';
-    }
+  // ── 本地模式 ──
+  if (form.mode === 'local') {
+    emit('started', { config, useLocalFallback: true });
+    return;
   }
 
-  emit('started', { config, simId: `LOCAL_${Date.now()}`, useLocalFallback: true });
-  loading.value = false;
+  // ── 后端 / 自动模式：在配置页等待后端跑完仿真 ──
+  loading.value = true;
+  backendHint.value = '';
+  try {
+    const serverData = await startSimulation(config);
+    emit('started', { config, useLocalFallback: false, serverData });
+  } catch (err) {
+    if (form.mode === 'local-first') {
+      backendHint.value = '未连接到后端，已自动切换本地演示模式。';
+      emit('started', { config, useLocalFallback: true });
+    } else {
+      backendHint.value = '后端不可用，请确认 Spring Boot 已启动。';
+    }
+  } finally {
+    loading.value = false;
+  }
 }
 </script>
 
@@ -223,18 +219,13 @@ async function submit() {
             <small>人数超过该值时切换圆点渲染。</small>
           </div>
           <div class="field">
-            <label for="tickInterval">画面刷新间隔 ms</label>
-            <input id="tickInterval" v-model.number="form.tickInterval" type="number" min="16" max="1000" />
-            <small>本地演示模式使用。</small>
-          </div>
-          <div class="field">
             <label for="mode">运行模式</label>
             <select id="mode" v-model="form.mode">
-              <option value="local-first">自动</option>
-              <option value="backend">后端</option>
+              <option value="local-first">自动（优先后端）</option>
+              <option value="backend">仅后端</option>
               <option value="local">本地演示</option>
             </select>
-            <small>未接后端时可选择本地演示。</small>
+            <small>本地演示无需启动后端服务。</small>
           </div>
         </div>
       </details>
@@ -243,7 +234,9 @@ async function submit() {
 
       <button class="primary-btn submit-btn" :disabled="loading" type="submit">
         <span v-if="!loading">▶ 开始仿真</span>
-        <span v-else>正在初始化...</span>
+        <span v-else class="loading-row">
+          <span class="btn-spinner"></span> 后端仿真运算中…
+        </span>
       </button>
     </form>
   </section>
@@ -469,4 +462,22 @@ async function submit() {
   letter-spacing: 0.04em;
   border-radius: 18px;
 }
+
+.loading-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.btn-spinner {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 3px solid rgba(255,255,255,0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
 </style>

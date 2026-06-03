@@ -1,5 +1,6 @@
 package com.bjtu.dining_simulation.service;
 
+import com.bjtu.dining_simulation.engine.SimulationEventLog;
 import com.bjtu.dining_simulation.engine.TrafficEngine;
 import com.bjtu.dining_simulation.engine.WaitlistEngine;
 import com.bjtu.dining_simulation.machine.StudentStateMachine;
@@ -11,7 +12,6 @@ import com.bjtu.dining_simulation.dto.StartResponseDTO;
 import lombok.Getter;
 import lombok.Setter;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -27,6 +27,7 @@ public class SimulationService {
     @Autowired private WaitlistEngine waitlistEngine;
     @Autowired private StudentStateMachine stateMachine;
     @Autowired private SimulationConfig simulationConfig;
+    @Autowired private SimulationEventLog eventLog;
 
     private int globalTickCounter = 0;
     private int targetStudentCount = 1500;
@@ -73,13 +74,21 @@ public class SimulationService {
 
         this.resetSimulation(config.getStudentCount(), windows, duration, seats);
 
+        // Run entire simulation synchronously — no WebSocket / scheduled ticking needed.
+        while (!isFinished()) {
+            runOneTick();
+        }
+
         StartResponseDTO response = new StartResponseDTO();
         response.setCode(200);
         response.setStatus("success");
-        response.setMsg("仿真引擎初始化成功");
-        response.setMessage("仿真已根据新参数重新启动");
+        response.setMsg("仿真完成，共运行 " + globalTickCounter + " Tick");
+        response.setMessage("仿真已完成");
         response.setSimId(currentSimId);
         response.setData(Map.of("simId", currentSimId));
+        response.setTotalTicks(globalTickCounter);
+        response.setLayout(resourceManager.buildLayout());
+        response.setEvents(new ArrayList<>(eventLog.getEvents()));
         return response;
     }
 
@@ -113,9 +122,9 @@ public class SimulationService {
         resourceManager.initResources(windowCount, seatCount);
         trafficEngine.reset();
         waitlistEngine.reset();
+        eventLog.reset();
     }
 
-    @Scheduled(fixedRate = 100)
     public void runTick() {
         if (paused || isFinished()) return;
         int steps = computeStepsThisFrame();

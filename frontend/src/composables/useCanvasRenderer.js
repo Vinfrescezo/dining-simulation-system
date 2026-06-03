@@ -67,34 +67,40 @@ function drawStudentDots(ctx, students, compact) {
 
 export function renderCanteen(canvas, snapshot, config, options = {}) {
   if (!canvas || !snapshot) return;
-  const ctx = canvas.getContext('2d');
-  const dpr = window.devicePixelRatio || 1;
-  const layout = createCanteenLayout(config);
+  try {
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const dpr = window.devicePixelRatio || 1;
+    const layout = options.layout || createCanteenLayout(config);
 
-  if (canvas.width !== layout.width * dpr || canvas.height !== layout.height * dpr) {
-    canvas.width = layout.width * dpr;
-    canvas.height = layout.height * dpr;
-  }
+    const needsResize = canvas.width !== layout.width * dpr || canvas.height !== layout.height * dpr;
+    if (needsResize) {
+      canvas.width  = layout.width  * dpr;
+      canvas.height = layout.height * dpr;
+    }
 
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, layout.width, layout.height);
-  drawBackground(ctx, layout);
-  drawZones(ctx, layout);
-  drawWindows(ctx, layout, snapshot.windows || []);
-  drawTables(ctx, layout);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, layout.width, layout.height);
+    drawBackground(ctx, layout);
+    drawZones(ctx, layout);
+    drawWindows(ctx, layout, snapshot.windows || []);
+    drawTables(ctx, layout);
 
-  const seatData = snapshot.seats || [];
-  if (options.heatmap && snapshot.tick > 0) {
-    drawSeatHeatmap(ctx, layout, seatData, snapshot.tick);
-  } else {
-    drawSeats(ctx, layout, seatData);
-  }
+    const seatData = snapshot.seats || [];
+    if (options.heatmap && snapshot.tick > 0) {
+      drawSeatHeatmap(ctx, layout, seatData, snapshot.tick);
+    } else {
+      drawSeats(ctx, layout, seatData);
+    }
 
-  drawStudents(ctx, snapshot.students || [], config.renderThreshold || 300);
-  drawOverlayText(ctx, snapshot, layout);
+    drawStudents(ctx, snapshot.students || [], config?.renderThreshold || 300);
+    drawOverlayText(ctx, snapshot, layout);
 
-  if (options.heatmap && snapshot.tick > 0) {
-    drawHeatmapLegend(ctx, layout);
+    if (options.heatmap && snapshot.tick > 0) {
+      drawHeatmapLegend(ctx, layout);
+    }
+  } catch (err) {
+    console.error('[renderCanteen] 渲染错误:', err);
   }
 }
 
