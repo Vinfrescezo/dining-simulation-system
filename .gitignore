@@ -12,4 +12,4 @@ backend/target/
 backend/.mvn/
 *.class
 
-.claude/settings.local.json
+
