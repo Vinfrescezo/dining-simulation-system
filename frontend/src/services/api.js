@@ -12,8 +12,8 @@ export async function startSimulation(config) {
     simDurationTick: config.simDurationTick,
     seatCount: config.seatCount,
     maxQueueLength: config.maxQueueLength ?? config.maxQueueCapacity,
-    maxSeatWaitCapacity: config.maxSeatWaitCapacity,
-    maxSeatWaitTick: config.maxSeatWaitTick
+    orderingTime: config.orderingTime,
+    eatingTime: config.eatingTime
   });
   return response.data;
 }

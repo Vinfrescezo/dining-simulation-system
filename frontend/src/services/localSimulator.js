@@ -13,26 +13,24 @@ const HOT_DISHES = [
 ];
 
 
-function truncatedNormalCdf(progress, mu, sigma) {
-  const safeSigma = Math.max(0.0001, sigma);
-  const start = normalCdf((0 - mu) / safeSigma);
-  const end = normalCdf((1 - mu) / safeSigma);
-  const current = normalCdf((progress - mu) / safeSigma);
-  const value = (current - start) / Math.max(0.0001, end - start);
-  return Math.max(0, Math.min(1, value));
-}
-
-function normalCdf(x) {
-  return 0.5 * (1 + erf(x / Math.sqrt(2)));
-}
-
-function erf(x) {
-  const sign = x < 0 ? -1 : 1;
-  x = Math.abs(x);
-  const t = 1 / (1 + 0.3275911 * x);
-  const y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t
-    - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
-  return sign * y;
+// 泊松分布抽样：λ < 30 用 Knuth 算法；λ ≥ 30 用正态近似
+function samplePoisson(lambda) {
+  if (lambda <= 0) return 0;
+  if (lambda < 30) {
+    const L = Math.exp(-lambda);
+    let k = 0;
+    let p = 1;
+    do {
+      k += 1;
+      p *= Math.random();
+    } while (p > L);
+    return k - 1;
+  }
+  const std = Math.sqrt(lambda);
+  const u = Math.random() || 0.0001;
+  const v = Math.random() || 0.0001;
+  const gauss = Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+  return Math.max(0, Math.round(lambda + std * gauss));
 }
 
 function randomNormal(mean, sd, min = 1) {
@@ -141,16 +139,13 @@ export class LocalDiningSimulator {
     const remaining = this.config.studentCount - this.generated;
     if (remaining <= 0) return;
 
-    // 本地演示模式也采用与后端一致的“截断正态累计到达”模型。
-    // 当前应累计到达人数 = 总人数 × CDF(t)，本 tick 到达人数 = 应累计人数 - 已生成人数。
-    // 这样右侧到达人数曲线不会在末尾为了补齐人数而出现异常尖峰。
+    // 泊松到达：每 tick 独立抽样，λ = 剩余人数 / 剩余时长。
+    // 整个仿真期间人流均匀波动，不会在某个时段断流。
     const duration = Math.max(1, this.config.simDurationTick);
-    const progress = Math.max(0, Math.min(1, this.tick / duration));
-    const fraction = truncatedNormalCdf(progress, 0.32, 0.12);
-    const expectedGenerated = this.tick >= duration
-      ? this.config.studentCount
-      : Math.floor(this.config.studentCount * fraction);
-    const count = Math.min(remaining, Math.max(0, expectedGenerated - this.generated));
+    const remainingTicks = Math.max(1, duration - this.tick);
+    const lambda = remaining / remainingTicks;
+    const sampled = samplePoisson(lambda);
+    const count = Math.min(remaining, sampled);
 
     for (let i = 0; i < count; i += 1) {
       this.createStudent();
@@ -179,8 +174,8 @@ export class LocalDiningSimulator {
       speed: randomNormal(4.6, 0.7, 2.8),
       queueStartTick: this.tick,
       seatWaitStartTick: null,
-      orderingLeft: randomNormal(18, 5, 4),
-      eatingLeft: randomNormal(480, 90, 120),
+      orderingLeft: randomNormal(this.config.orderingTime ?? 28, Math.max(2, (this.config.orderingTime ?? 28) * 0.2), 5),
+      eatingLeft: randomNormal(this.config.eatingTime ?? 480, Math.max(20, (this.config.eatingTime ?? 480) * 0.18), 60),
       totalWait: 0,
       totalSeatWait: 0
     };
@@ -292,10 +287,16 @@ export class LocalDiningSimulator {
     } else {
       student.s = WAITING_FOR_SEAT;
       student.seatWaitStartTick = this.tick;
-      const spot = getWaitingSpot(this.layout, this.waitingSeatQueue.length);
-      student.x = spot.x;
-      student.y = spot.y;
-      student.target = spot;
+      const w = this.windows.find(wi => wi.id === student.windowId);
+      if (w) {
+        const h = Math.abs((student.id * 2654435761) | 0);
+        student.x = w.queueX + 25 + (h % 25);
+        student.y = w.queueStartY + 30 + ((h >> 6) % 280);
+      } else {
+        student.x = 100 + Math.random() * 80;
+        student.y = 350 + Math.random() * 350;
+      }
+      student.target = { x: student.x, y: student.y };
       this.waitingSeatQueue.push(student.id);
     }
   }
@@ -378,12 +379,19 @@ export class LocalDiningSimulator {
       this.waitingSeatQueue.splice(toRemove[i], 1);
     }
 
-    this.waitingSeatQueue.forEach((id, index) => {
+    this.waitingSeatQueue.forEach((id) => {
       const student = this.students.get(id);
       if (!student) return;
-      const spot = getWaitingRoamingSpot(this.layout, index, this.tick);
-      student.target = spot;
-      moveTowards(student, spot, 1.2);
+      const w = this.windows.find(wi => wi.id === student.windowId);
+      if (w) {
+        const h = Math.abs((student.id * 2654435761) | 0);
+        const baseX = w.queueX + 25 + (h % 25);
+        const baseY = w.queueStartY + 30 + ((h >> 6) % 280);
+        const wanderX = Math.sin((this.tick + student.id * 17) / 18) * 6;
+        const wanderY = Math.cos((this.tick + student.id * 23) / 22) * 6;
+        student.target = { x: baseX + wanderX, y: baseY + wanderY };
+      }
+      moveTowards(student, student.target, 1.0);
     });
   }
 
@@ -484,7 +492,8 @@ export class LocalDiningSimulator {
     });
   }
 
-  buildReport() {
+  buildReport(options = {}) {
+    const isPartial = options.reportType === '阶段性报告';
     const arrived = this.generated;
     const served = this.windows.reduce((sum, win) => sum + win.served, 0);
     const currentWaitingTime = this.windows.reduce((sum, win) => sum + this.currentWaitingTimeSum(win), 0);
@@ -504,18 +513,19 @@ export class LocalDiningSimulator {
       totalServedCount: win.served
     }));
 
-    const score = lossRate > 0.15 || avgWaitTime > 240
+    // 阈值与后端保持一致：基于"打饭 28 秒/人 + 用餐 8 分钟"模型校准
+    const score = (lossRate > 0.15 || avgWaitTime > 360)
       ? '极度拥挤'
-      : lossRate > 0.06 || avgWaitTime > 150
+      : (lossRate > 0.08 || avgWaitTime > 240)
         ? '偏拥挤'
-        : avgWaitTime > 80
+        : (lossRate > 0.02 || avgWaitTime > 150)
           ? '基本可控'
           : '运行顺畅';
 
-    const recommendedWindows = Math.max(0, Math.ceil((avgWaitTime - 120) / 60));
+    const recommendedWindows = Math.max(0, Math.ceil((avgWaitTime - 180) / 90));
     const suggestion = recommendedWindows > 0
-      ? `建议增加 ${recommendedWindows} 个窗口，或将热门菜品拆分至快餐窗口以削峰。`
-      : '当前窗口配置基本可行，可重点观察座位周转与端盘等座区域。';
+      ? `排队压力偏高，建议增加 ${recommendedWindows} 个窗口或将热门菜品分流至快餐窗口。`
+      : '当前窗口与座位配置基本均衡，可保留本次数据用于多轮方案对比。';
 
     return {
       simId: `LOCAL_${Date.now()}`,
@@ -523,15 +533,22 @@ export class LocalDiningSimulator {
       config: this.config,
       score,
       suggestion,
+      source: 'local',
+      reportType: isPartial ? '阶段性报告' : '最终报告',
+      reportNote: isPartial
+        ? `本报告在仿真运行到第 ${this.tick} 秒（Tick）时生成，统计数据为当前阶段累计结果。`
+        : '本次本地仿真已完成，统计数据为完整仿真结果。',
       summary: {
         avgWaitTime,
         avgSeatWaitTime,
         seatTurnoverRate,
         lossRate,
         maxCongestion: this.maxCongestion,
+        maxSeatWaiting: this.maxSeatWaiting ?? 0,
         generated: this.generated,
         finished: this.finished,
         lost: this.lost,
+        queueLost: this.lost,
         served
       },
       trend: this.trend,

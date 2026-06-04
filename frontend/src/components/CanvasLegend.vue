@@ -3,7 +3,7 @@ const items = [
   { label: '寻路 / 移动', color: '#2563eb' },
   { label: '排队', color: '#f97316' },
   { label: '打饭', color: '#7c3aed' },
-  { label: '等座', color: '#dc2626' },
+  { label: '等座', color: '#be185d' },
   { label: '就餐', color: '#16a34a' },
   { label: '离开', color: '#64748b' }
 ];

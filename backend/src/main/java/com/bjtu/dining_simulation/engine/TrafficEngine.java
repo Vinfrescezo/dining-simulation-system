@@ -29,7 +29,7 @@ public class TrafficEngine {
         int remaining = ctx.getTargetStudentCount() - ctx.getGeneratedCount();
         if (remaining <= 0) return;
 
-        int countToSpawn = calculateNormalArrivalCount(ctx);
+        int countToSpawn = calculatePoissonArrivalCount(ctx);
         countToSpawn = Math.min(remaining, countToSpawn);
         if (countToSpawn <= 0) return;
 
@@ -62,64 +62,48 @@ public class TrafficEngine {
     }
 
     /**
-     * 按“截断正态分布的累计分布函数”决定当前 Tick 应累计生成多少学生。
+     * 泊松到达模型：每 Tick 独立抽样，到达人数服从 Poisson(λ)。
      *
-     * 为什么不用“每 Tick 概率 + 末尾补齐”？
-     * 旧逻辑在仿真末尾为了补齐人数，会突然生成一批学生，导致到达人数曲线尾部出现异常尖峰。
-     * 这里改为累计目标人数：
-     *   当前应生成人数 = 总人数 × CDF(t)
-     *   本 Tick 生成人数 = 当前应生成人数 - 已生成人数
+     * λ 的取值采用"剩余人数 / 剩余时长"动态调整：
+     *   λ_t = max(0, targetStudentCount - generated) / max(1, duration - tick)
      *
-     * 这样可以同时保证：
-     * 1. 总人数最终等于 studentCount；
-     * 2. 到达曲线整体呈单峰正态分布；
-     * 3. 不会在最后几个 Tick 暴力补齐，避免假高峰。
+     * 这种动态 λ 的好处：
+     *   1. 整个仿真期间到达率基本保持稳定（接近 N/T），符合"全天均匀就餐"语义；
+     *   2. 当某段时间偶然生成偏少时，后续 λ 会略微回升，保证最终生成总数接近目标；
+     *   3. 每个 Tick 是独立泊松抽样，到达人数随机波动，符合排队论经典模型。
+     *
+     * 与之前的截断正态分布相比，泊松到达不会在仿真后期"断流"，
+     * 而是在整个时段内都有学生陆续进入。
      */
-    private int calculateNormalArrivalCount(SimulationService ctx) {
+    private int calculatePoissonArrivalCount(SimulationService ctx) {
         int duration = Math.max(1, ctx.getSimDurationTick());
-        int tick = Math.max(0, Math.min(ctx.getGlobalTickCounter(), duration));
+        int tick = Math.max(0, ctx.getGlobalTickCounter());
+        int remainingTicks = Math.max(1, duration - tick);
+        int remainingStudents = Math.max(0, ctx.getTargetStudentCount() - ctx.getGeneratedCount());
+        if (remainingStudents <= 0) return 0;
+        double lambda = (double) remainingStudents / remainingTicks;
+        return samplePoisson(lambda);
+    }
 
-        double progress = (double) tick / duration;
-        double fraction = truncatedNormalCdf(progress, config.getArrivalPeakCenter(), config.getArrivalPeakSigma());
-
-        int expectedGenerated;
-        if (tick >= duration) {
-            expectedGenerated = ctx.getTargetStudentCount();
-        } else {
-            expectedGenerated = (int) Math.floor(ctx.getTargetStudentCount() * fraction);
+    /**
+     * 泊松分布抽样。
+     *   λ < 30：使用 Knuth 经典算法（数值稳定）
+     *   λ ≥ 30：使用正态分布近似（均值 = λ，方差 = λ）
+     */
+    private int samplePoisson(double lambda) {
+        if (lambda <= 0) return 0;
+        if (lambda < 30) {
+            double l = Math.exp(-lambda);
+            int k = 0;
+            double p = 1.0;
+            do {
+                k++;
+                p *= random.nextDouble();
+            } while (p > l);
+            return k - 1;
         }
-
-        return Math.max(0, expectedGenerated - ctx.getGeneratedCount());
-    }
-
-    /**
-     * 将正态分布限制在 [0, 1] 的仿真进度区间内，并重新归一化。
-     * 返回值表示从仿真开始到 progress 为止，理论上应该到达的累计比例。
-     */
-    private double truncatedNormalCdf(double progress, double mu, double sigma) {
-        double safeSigma = Math.max(0.0001, sigma);
-        double start = normalCdf((0.0 - mu) / safeSigma);
-        double end = normalCdf((1.0 - mu) / safeSigma);
-        double current = normalCdf((progress - mu) / safeSigma);
-        double denominator = Math.max(0.0001, end - start);
-        double value = (current - start) / denominator;
-        return Math.max(0.0, Math.min(1.0, value));
-    }
-
-    private double normalCdf(double x) {
-        return 0.5 * (1.0 + erf(x / Math.sqrt(2.0)));
-    }
-
-    /**
-     * Abramowitz and Stegun 公式 7.1.26 的 erf 近似，精度足够用于仿真到达分布。
-     */
-    private double erf(double x) {
-        double sign = x < 0 ? -1.0 : 1.0;
-        x = Math.abs(x);
-        double t = 1.0 / (1.0 + 0.3275911 * x);
-        double y = 1.0 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t
-                - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
-        return sign * y;
+        double std = Math.sqrt(lambda);
+        return Math.max(0, (int) Math.round(lambda + std * random.nextGaussian()));
     }
 
     private String pickPreferredWindowId(SimulationService ctx) {

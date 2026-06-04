@@ -67,7 +67,10 @@ export class EventPlayer {
         dishName:        w.dishName        || w.id,
         popularityRank:  w.popularityRank  || 99,
         popularityScore: w.popularityScore || 1,
-        qLen: 0, served: 0, peakQueueLength: 0
+        qLen: 0, served: 0, peakQueueLength: 0,
+        avgWaitTime: 0,
+        _totalWait: 0,
+        _waitCount: 0
       });
     }
 
@@ -87,10 +90,16 @@ export class EventPlayer {
     for (const [, evts] of studentEvents) {
       let queueTick = null;
       let waitSeatTick = null;
+      let currentWindowId = null;
       for (const evt of evts) {
-        if (evt.type === 'QUEUE') queueTick = evt.tick;
+        if (evt.type === 'ARRIVE') currentWindowId = evt.targetId;
+        if (evt.type === 'QUEUE') {
+          queueTick = evt.tick;
+          if (evt.targetId) currentWindowId = evt.targetId;
+        }
         if (evt.type === 'ORDER_START' && queueTick !== null) {
-          this.queueCompletions.push({ tick: evt.tick, waitTime: evt.tick - queueTick });
+          const winId = evt.targetId || currentWindowId;
+          this.queueCompletions.push({ tick: evt.tick, waitTime: evt.tick - queueTick, windowId: winId });
           queueTick = null;
         }
         if (evt.type === 'WAIT_SEAT') waitSeatTick = evt.tick;
@@ -199,16 +208,36 @@ export class EventPlayer {
             break;
           }
 
-          case 'SIT':
+          case 'SIT': {
+            const prevWp = waypoints.at(-1);
+            if (prevWp && prevWp.state === WAITING_FOR_SEAT && prevWp.tick < evt.tick) {
+              // 直线走向座位，固定 5 px/tick 速度（与离场速度一致）
+              const SEEK_SPEED = 5;
+              const dist = Math.hypot(evt.x - prevWp.x, evt.y - prevWp.y);
+              const walkTicks = Math.max(2, Math.ceil(dist / SEEK_SPEED));
+              const maxGap = evt.tick - prevWp.tick - 1;
+              const useTicks = Math.min(walkTicks, Math.max(1, maxGap));
+              const startTick = evt.tick - useTicks;
+              waypoints.push({ tick: startTick, x: prevWp.x, y: prevWp.y, state: SEEK_SEAT });
+            }
             waypoints.push({ tick: evt.tick, x: evt.x, y: evt.y, state: EATING, seatId: evt.targetId });
             break;
+          }
 
-          case 'WAIT_SEAT':
-            waypoints.push({ tick: evt.tick,
-              x: 30 + Math.abs(hashCode(studentId) % 60),
-              y: 350 + Math.abs(hashCode(studentId) % 400),
-              state: WAITING_FOR_SEAT });
+          case 'WAIT_SEAT': {
+            const win = windowId ? this.windowMap.get(windowId) : null;
+            if (win) {
+              // 等座位置：窗口右下方 service area 范围内（避开座位区和队伍）
+              const h = Math.abs(hashCode(studentId));
+              const ox = win.queueX + 22 + (h % 28);            // 队列右侧 22-50px
+              const oy = (win.y || 100) + 50 + ((h >> 5) % 160); // 窗口下方 50-210px，仍在 service area
+              waypoints.push({ tick: evt.tick, x: ox, y: oy, state: WAITING_FOR_SEAT });
+            } else {
+              const h = Math.abs(hashCode(studentId));
+              waypoints.push({ tick: evt.tick, x: 100 + (h % 80), y: 200 + ((h >> 6) % 80), state: WAITING_FOR_SEAT });
+            }
             break;
+          }
 
           case 'SEAT_ABANDON':
             this._addLeavePath(waypoints, evt.tick, evt.x, evt.y, exitLane, null);
@@ -369,10 +398,18 @@ export class EventPlayer {
     }
 
     let totalQueueWait = 0, queueCount = 0;
+    for (const [, ws] of this.windowStats) { ws._totalWait = 0; ws._waitCount = 0; }
     for (const c of this.queueCompletions) {
       if (c.tick > t) break;
       totalQueueWait += c.waitTime;
       queueCount++;
+      if (c.windowId) {
+        const ws = this.windowStats.get(c.windowId);
+        if (ws) { ws._totalWait += c.waitTime; ws._waitCount++; }
+      }
+    }
+    for (const [, ws] of this.windowStats) {
+      ws.avgWaitTime = ws._waitCount > 0 ? ws._totalWait / ws._waitCount : 0;
     }
     let totalSeatWait = 0, seatWaitCount = 0;
     for (const c of this.seatWaitCompletions) {

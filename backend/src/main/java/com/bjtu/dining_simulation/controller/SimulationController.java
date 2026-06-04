@@ -29,8 +29,8 @@ public class SimulationController {
         System.out.println("3. 仿真步数 (simDurationTick):    " + config.getSimDurationTick());
         System.out.println("4. 座位总数 (seatCount):          " + config.getSeatCount());
         System.out.println("5. 排队上限 (maxQueueLength):     " + config.getMaxQueueLength());
-        System.out.println("6. 等座区上限 (maxSeatWaitCapacity): " + config.getMaxSeatWaitCapacity());
-        System.out.println("7. 等座耐心 (maxSeatWaitTick):    " + config.getMaxSeatWaitTick());
+        System.out.println("6. 打饭时长 (orderingTime/秒):    " + config.getOrderingTime());
+        System.out.println("7. 用餐时长 (eatingTime/秒):      " + config.getEatingTime());
         System.out.println("=".repeat(30) + "\n");
         StartResponseDTO response = simulationService.startSimulation(config);
         response.setReport(reportService.generateAndSaveFinalReport());

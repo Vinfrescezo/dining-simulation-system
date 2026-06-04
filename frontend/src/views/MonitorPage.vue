@@ -115,7 +115,7 @@ function handleSnapshot(data) {
   nextTick(() => scheduleRender(normalized));
 
   if (data?.type === 'FINISHED' || data?.finished === true || data?.done === true) {
-    finish(data.report || buildLocalReport());
+    finish(data.report || buildPartialReport());
   }
 }
 
@@ -224,49 +224,116 @@ function generateCurrentReport() {
   paused.value = true;
   simulator?.setPaused(true);
   player?.setPaused(true);
-  if (props.useLocalFallback || !serverReport.value) {
-    finish(buildLocalReport('阶段性报告'));
-    return;
-  }
-  finish(serverReport.value);
+  // 总是基于当前 snapshot/trendHistory 构造阶段性报告，不再返回后端的最终报告
+  finish(buildPartialReport());
 }
 
 function finish(report) {
   cleanup();
-  emit('finished', report ?? buildLocalReport());
+  emit('finished', report ?? buildPartialReport());
 }
 
-function buildLocalReport(reportType = '最终报告') {
-  const generated = snapshot.value?.generated ?? 0;
-  const lost      = snapshot.value?.lost ?? 0;
-  const maxCongestion = trendHistory.value.reduce((max, item) => Math.max(max, item.activeCount), 0);
-  const lossRateValue = generated ? lost / generated : 0;
-  const avgQueueMap = Array.from(windowSamples.value.entries()).map(([id, samples]) => ({
-    id,
-    dishName:       snapshot.value?.windows?.find(w => w.id === id)?.dishName ?? id,
-    popularityRank: snapshot.value?.windows?.find(w => w.id === id)?.popularityRank ?? 99,
-    avgQueueLength: samples.length ? samples.reduce((a, b) => a + b, 0) / samples.length : 0,
-    avgWaitTime: 0,
-    totalServedCount: snapshot.value?.windows?.find(w => w.id === id)?.served ?? 0
-  }));
+function buildPartialReport() {
+  // 本地模式直接复用 simulator 内部完整状态
+  if (simulator) {
+    return simulator.buildReport({ reportType: '阶段性报告' });
+  }
+  // 后端回放模式：基于 snapshot + trendHistory + windowSamples 重建报告
+  const snap = snapshot.value || {};
+  const stats = snap.stats || {};
+  const tick = snap.tick ?? 0;
+  const generated = snap.generated ?? 0;
+  const lost = snap.lost ?? 0;
+  const finished = snap.finished ?? 0;
+  const served = (snap.windows || []).reduce((s, w) => s + (w.served ?? 0), 0);
+  const lossRate = generated > 0 ? lost / generated : 0;
+  const avgWaitTime = stats.avgWaitTime ?? 0;
+  const avgSeatWaitTime = stats.avgSeatWaitTime ?? 0;
+  const seatTurnoverRate = props.config.seatCount ? served / props.config.seatCount : 0;
+  const maxCongestion = trendHistory.value.reduce((max, item) => Math.max(max, item.activeCount ?? 0), 0);
+  const maxSeatWaiting = trendHistory.value.reduce((max, item) => Math.max(max, item.waitingSeatCount ?? 0), 0);
+
+  const windowPerformance = (snap.windows || []).map(win => {
+    const samples = windowSamples.value.get(win.id) || [];
+    const avgQueueLength = samples.length ? samples.reduce((a, b) => a + b, 0) / samples.length : (win.qLen ?? 0);
+    const peakQueueLength = samples.length ? Math.max(...samples) : (win.peakQueueLength ?? win.qLen ?? 0);
+    return {
+      id: win.id,
+      dishName: win.dishName ?? win.id,
+      popularityRank: win.popularityRank ?? 99,
+      popularityScore: win.popularityScore ?? 0,
+      avgQueueLength: Number(avgQueueLength.toFixed(2)),
+      avgWaitTime: win.avgWaitTime ?? 0,
+      peakQueueLength,
+      totalServedCount: win.served ?? 0
+    };
+  });
+
+  // 评分与瓶颈诊断（与后端 SimulationReportService 阈值保持一致）
+  const score = (lossRate > 0.15 || avgWaitTime > 360 || avgSeatWaitTime > 240 || maxSeatWaiting > 80) ? '极度拥挤'
+    : (lossRate > 0.08 || avgWaitTime > 240 || avgSeatWaitTime > 150 || maxSeatWaiting > 50) ? '偏拥挤'
+    : (lossRate > 0.02 || avgWaitTime > 150 || avgSeatWaitTime > 60 || maxSeatWaiting > 20) ? '基本可控'
+    : '运行顺畅';
+
+  const windowPressure = lossRate > 0.05 || avgWaitTime > 180;
+  const seatPressure = avgSeatWaitTime > 120 || maxSeatWaiting > 30;
+  const bottleneckType = (windowPressure && seatPressure) ? '窗口与座位双重瓶颈'
+    : windowPressure ? '窗口服务瓶颈'
+    : seatPressure ? '座位资源瓶颈'
+    : '运行基本均衡';
+
+  const formatDur = (sec) => {
+    const total = Math.round(sec || 0);
+    const m = Math.floor(total / 60);
+    const s = total % 60;
+    return m > 0 ? `${m}分${String(s).padStart(2, '0')}秒` : `${s}秒`;
+  };
+
+  const bottleneckReason = bottleneckType === '窗口服务瓶颈'
+    ? `平均排队约 ${formatDur(avgWaitTime)}，窗口流失率 ${(lossRate * 100).toFixed(1)}%，学生主要卡在打饭窗口。`
+    : bottleneckType === '座位资源瓶颈'
+      ? `平均找座约 ${formatDur(avgSeatWaitTime)}，找座峰值 ${maxSeatWaiting} 人，打完饭后找座是主要压力。`
+      : bottleneckType === '窗口与座位双重瓶颈'
+        ? `平均排队 ${formatDur(avgWaitTime)}、平均找座 ${formatDur(avgSeatWaitTime)}，窗口与座位均承压。`
+        : '排队、找座、流失三项指标都处于较低区间，当前资源配置基本均衡。';
+
+  const suggestions = [`当前主要瓶颈：${bottleneckType}。`];
+  if (lossRate > 0.15) suggestions.push(`窗口流失率达 ${(lossRate * 100).toFixed(1)}%，窗口承载严重不足，建议增加 2—3 个开放窗口。`);
+  else if (lossRate > 0.05 || avgWaitTime > 240) suggestions.push('排队压力偏高，建议增加 1—2 个窗口或优化窗口分流引导。');
+  else if (avgWaitTime > 120) suggestions.push('排队时间略长，可在高峰时段临时增开窗口。');
+  if (avgSeatWaitTime > 180 || maxSeatWaiting > 60) suggestions.push('座位资源不足，建议增加座位或引导错峰就餐。');
+  else if (avgSeatWaitTime > 90 || maxSeatWaiting > 30) suggestions.push('找座时间偏长，建议提高翻台效率或在高峰期增设临时餐位。');
+  if (suggestions.length === 1) suggestions.push('当前窗口和座位配置基本合理，可保留本次数据用于多轮方案对比。');
+
   return {
-    simId: `SIM_${Date.now()}`,
+    simId: `PARTIAL_${Date.now()}`,
     createdAt: new Date().toLocaleString(),
-    source: 'local',
-    reportType,
-    score: lossRateValue > 0.12 ? '极度拥挤' : lossRateValue > 0.05 ? '偏拥挤' : '基本可控',
-    suggestion: lossRateValue > 0.08 ? '建议增加 1—2 个窗口，观察等座区瞬时峰值。' : '当前配置基本可行，建议保留监控数据进行多轮对比。',
+    config: props.config,
+    source: 'backend',
+    reportType: '阶段性报告',
+    reportNote: `本报告在仿真回放到第 ${tick} 秒（Tick）时生成，统计数据为当前阶段累计结果。`,
+    score,
+    suggestion: suggestions.join(' '),
+    bottleneckType,
+    bottleneckReason,
+    topHotWindowSuggestion: '阶段性报告暂不包含热门窗口分析，建议运行至结束后查看完整报告。',
     summary: {
-      avgWaitTime:     snapshot.value?.stats?.avgWaitTime ?? 0,
-      avgSeatWaitTime: snapshot.value?.stats?.avgSeatWaitTime ?? 0,
-      seatTurnoverRate: props.config.seatCount ? (generated - lost) / props.config.seatCount : 0,
-      lossRate: lossRateValue, maxCongestion,
-      generated, lost, served: generated - lost,
-      finished: snapshot.value?.finished ?? 0
+      avgWaitTime,
+      avgSeatWaitTime,
+      seatTurnoverRate,
+      lossRate,
+      maxCongestion,
+      maxSeatWaiting,
+      generated,
+      finished,
+      lost,
+      queueLost: lost,
+      served,
+      bottleneckType
     },
     trend: trendHistory.value,
     arrivalTrend: arrivalSamples.value,
-    windowPerformance: avgQueueMap
+    windowPerformance
   };
 }
 
@@ -300,7 +367,7 @@ onBeforeUnmount(cleanup);
         </div>
         <div class="progress-track"><i :style="{ width: `${progress}%` }"></i></div>
         <div class="progress-time">
-          <span>{{ snapshot?.tick ?? 0 }}秒</span>
+          <span><b class="tick-label">Tick</b> {{ snapshot?.tick ?? 0 }}</span>
           <span>/ {{ config.simDurationTick }}秒</span>
         </div>
       </div>
@@ -325,10 +392,6 @@ onBeforeUnmount(cleanup);
           <div class="avg-row">
             <span>等座均值</span>
             <b>{{ avgSeatWaitDisplay }}</b>
-          </div>
-          <div class="avg-row">
-            <span>等座放弃</span>
-            <b>{{ seatAbandoned }} 人</b>
           </div>
         </div>
       </div>
@@ -515,6 +578,18 @@ onBeforeUnmount(cleanup);
   font-size: 10.5px;
   color: var(--muted);
   font-weight: 700;
+}
+
+.tick-label {
+  display: inline-block;
+  padding: 1px 6px;
+  margin-right: 4px;
+  border-radius: 6px;
+  background: rgba(37, 99, 235, 0.10);
+  color: #1d4ed8;
+  font-weight: 800;
+  font-size: 10px;
+  letter-spacing: 0.3px;
 }
 
 /* ── Metrics ── */

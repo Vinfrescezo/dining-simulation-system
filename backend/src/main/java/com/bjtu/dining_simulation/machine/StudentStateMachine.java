@@ -208,20 +208,12 @@ public class StudentStateMachine {
     }
 
     private void moveToWaitlistOrLeave(SimulationService ctx, Student student) {
-        if (waitlistEngine.canJoinWaitlist()) {
-            student.setStatus("WAITING_FOR_SEAT");
-            student.setSeatWaitStartTick(ctx.getGlobalTickCounter());
-            student.setSeatSearchStartTick(-1);
-            waitlistEngine.joinWaitlist(student.getId());
-            eventLog.record(ctx.getGlobalTickCounter(), "WAIT_SEAT", student.getId(), null, student.getX(), student.getY());
-        } else {
-            student.setStatus("LEAVING");
-            student.setTargetX(config.getEXIT_X());
-            student.setTargetY(config.getEXIT_Y());
-            student.setSeatSearchStartTick(-1);
-            ctx.addSeatAbandonCount();
-            eventLog.record(ctx.getGlobalTickCounter(), "SEAT_ABANDON", student.getId(), null, student.getX(), student.getY());
-        }
+        // 不再触发等座流失：所有找不到座位的学生都进入等座队列耐心等待
+        student.setStatus("WAITING_FOR_SEAT");
+        student.setSeatWaitStartTick(ctx.getGlobalTickCounter());
+        student.setSeatSearchStartTick(-1);
+        waitlistEngine.joinWaitlist(student.getId());
+        eventLog.record(ctx.getGlobalTickCounter(), "WAIT_SEAT", student.getId(), null, student.getX(), student.getY());
     }
 
     private Student findStudentById(SimulationService ctx, String id) {

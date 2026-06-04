@@ -4,8 +4,8 @@ export function validateConfig(config) {
   const windowCount = Number(config.windowCount);
   const simDurationTick = Number(config.simDurationTick);
   const seatCount = Number(config.seatCount);
-  const maxSeatWaitCapacity = Number(config.maxSeatWaitCapacity);
-  const maxSeatWaitTick = Number(config.maxSeatWaitTick);
+  const orderingTime = Number(config.orderingTime);
+  const eatingTime = Number(config.eatingTime);
 
   if (!Number.isFinite(studentCount) || studentCount <= 0 || studentCount >= 5000) {
     errors.studentCount = '预计人数必须大于 0 且小于 5000';
@@ -23,12 +23,12 @@ export function validateConfig(config) {
     errors.seatCount = '座位数建议在 20 至 1200 之间';
   }
 
-  if (!Number.isFinite(maxSeatWaitCapacity) || maxSeatWaitCapacity < 20 || maxSeatWaitCapacity > 500) {
-    errors.maxSeatWaitCapacity = '等座区上限建议在 20 至 500 之间';
+  if (!Number.isFinite(orderingTime) || orderingTime < 5 || orderingTime > 120) {
+    errors.orderingTime = '打饭时长建议在 5 至 120 秒之间';
   }
 
-  if (!Number.isFinite(maxSeatWaitTick) || maxSeatWaitTick < 30 || maxSeatWaitTick > 1800) {
-    errors.maxSeatWaitTick = '等座耐心建议在 30 至 1800 秒之间（1 Tick≈1秒）';
+  if (!Number.isFinite(eatingTime) || eatingTime < 60 || eatingTime > 1800) {
+    errors.eatingTime = '用餐时长建议在 60 至 1800 秒（1—30 分钟）之间';
   }
 
   return {
@@ -45,8 +45,8 @@ export function toPayload(config) {
     seatCount: Number(config.seatCount),
     maxQueueLength: Number(config.maxQueueCapacity),
     maxQueueCapacity: Number(config.maxQueueCapacity),
-    maxSeatWaitCapacity: Number(config.maxSeatWaitCapacity),
-    maxSeatWaitTick: Number(config.maxSeatWaitTick),
+    orderingTime: Number(config.orderingTime),
+    eatingTime: Number(config.eatingTime),
     renderThreshold: Number(config.renderThreshold)
   };
 }

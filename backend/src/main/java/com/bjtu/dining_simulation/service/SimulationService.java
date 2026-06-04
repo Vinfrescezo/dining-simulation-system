@@ -65,12 +65,11 @@ public class SimulationService {
         int seats = config.getSeatCount() > 0 ? config.getSeatCount() : 240;
         int windows = config.getWindowCount() > 0 ? config.getWindowCount() : 10;
         int duration = config.getSimDurationTick() > 0 ? config.getSimDurationTick() : 3600;
-        int maxQueue = config.getMaxQueueLength() > 0 ? config.getMaxQueueLength() : 30;
-        int maxSeatWait = config.getMaxSeatWaitCapacity() > 0 ? config.getMaxSeatWaitCapacity() : Math.max(60, seats / 2);
-        int maxSeatWaitTick = config.getMaxSeatWaitTick() > 0 ? config.getMaxSeatWaitTick() : 240;
+        int maxQueue = config.getMaxQueueLength() > 0 ? config.getMaxQueueLength() : 20;
         simulationConfig.setMaxQueueLength(maxQueue);
-        simulationConfig.setMaxSeatWaitCapacity(maxSeatWait);
-        simulationConfig.setMaxSeatWaitTick(maxSeatWaitTick);
+
+        if (config.getOrderingTime() > 0) simulationConfig.setOrderingMu(config.getOrderingTime());
+        if (config.getEatingTime() > 0) simulationConfig.setEatingMu(config.getEatingTime());
 
         this.resetSimulation(config.getStudentCount(), windows, duration, seats);
 
@@ -154,7 +153,7 @@ public class SimulationService {
 
         trafficEngine.processSpawning(this);
         waitlistEngine.allocateSeatsToWaitingStudents(this);
-        waitlistEngine.removeOvertimeWaitingStudents(this);
+        // 已去掉等座流失：不再因等待超时让学生离场
         stateMachine.updateStudentStatus(this);
         sampleStats();
 

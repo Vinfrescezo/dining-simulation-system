@@ -30,7 +30,8 @@ public class WaitlistEngine {
     }
 
     public boolean canJoinWaitlist() {
-        return waitingSeatQueue.size() < config.getMaxSeatWaitCapacity();
+        // 等座区无容量上限：所有等座学生都可加入
+        return true;
     }
 
     public void joinWaitlist(String studentId) {
@@ -66,6 +67,7 @@ public class WaitlistEngine {
         updateWaitingPositions(ctx);
     }
 
+    // 已去掉等座流失：方法保留为空，仅清理已不在等座状态的脏数据
     public void removeOvertimeWaitingStudents(SimulationService ctx) {
         if (waitingSeatQueue.isEmpty()) return;
         Iterator<String> iterator = waitingSeatQueue.iterator();
@@ -74,16 +76,6 @@ public class WaitlistEngine {
             Student s = ctx.getStudents().stream().filter(item -> item.getId().equals(sid)).findFirst().orElse(null);
             if (s == null || !"WAITING_FOR_SEAT".equals(s.getStatus())) {
                 iterator.remove();
-                continue;
-            }
-            if (s.getSeatWaitStartTick() != null && ctx.getGlobalTickCounter() - s.getSeatWaitStartTick() >= config.getMaxSeatWaitTick()) {
-                iterator.remove();
-                eventLog.record(ctx.getGlobalTickCounter(), "SEAT_ABANDON", s.getId(), null, s.getX(), s.getY());
-                s.setStatus("LEAVING");
-                s.setTargetX(config.getEXIT_X());
-                s.setTargetY(config.getEXIT_Y());
-                s.setSeatWaitStartTick(null);
-                ctx.addSeatAbandonCount();
             }
         }
         updateWaitingPositions(ctx);

@@ -15,10 +15,10 @@ const PRESETS = [
     studentCount: 2000,
     windowCount: 14,
     seatCount: 400,
-    simDurationTick: 3600,
-    maxQueueCapacity: 40,
-    maxSeatWaitCapacity: 100,
-    maxSeatWaitTick: 300
+    simDurationTick: 5400,
+    maxQueueCapacity: 20,
+    orderingTime: 28,
+    eatingTime: 480
   },
   {
     key: 'xuehuo',
@@ -27,10 +27,10 @@ const PRESETS = [
     studentCount: 1200,
     windowCount: 10,
     seatCount: 240,
-    simDurationTick: 3600,
-    maxQueueCapacity: 35,
-    maxSeatWaitCapacity: 80,
-    maxSeatWaitTick: 240
+    simDurationTick: 5400,
+    maxQueueCapacity: 20,
+    orderingTime: 28,
+    eatingTime: 480
   },
   {
     key: 'xuesi',
@@ -39,10 +39,10 @@ const PRESETS = [
     studentCount: 800,
     windowCount: 6,
     seatCount: 140,
-    simDurationTick: 2400,
-    maxQueueCapacity: 30,
-    maxSeatWaitCapacity: 50,
-    maxSeatWaitTick: 200
+    simDurationTick: 5400,
+    maxQueueCapacity: 18,
+    orderingTime: 32,
+    eatingTime: 420
   },
   {
     key: 'liuyuan',
@@ -51,10 +51,10 @@ const PRESETS = [
     studentCount: 500,
     windowCount: 4,
     seatCount: 80,
-    simDurationTick: 2400,
-    maxQueueCapacity: 25,
-    maxSeatWaitCapacity: 40,
-    maxSeatWaitTick: 180
+    simDurationTick: 5400,
+    maxQueueCapacity: 15,
+    orderingTime: 35,
+    eatingTime: 540
   }
 ];
 
@@ -66,8 +66,8 @@ const form = reactive({
   simDurationTick: DEFAULT_CONFIG.simDurationTick,
   seatCount: DEFAULT_CONFIG.seatCount,
   maxQueueCapacity: DEFAULT_CONFIG.maxQueueCapacity,
-  maxSeatWaitCapacity: DEFAULT_CONFIG.maxSeatWaitCapacity,
-  maxSeatWaitTick: DEFAULT_CONFIG.maxSeatWaitTick,
+  orderingTime: DEFAULT_CONFIG.orderingTime,
+  eatingTime: DEFAULT_CONFIG.eatingTime,
   renderThreshold: DEFAULT_CONFIG.renderThreshold,
   mode: 'local-first'
 });
@@ -79,8 +79,8 @@ function applyPreset(preset) {
   form.seatCount = preset.seatCount;
   form.simDurationTick = preset.simDurationTick;
   form.maxQueueCapacity = preset.maxQueueCapacity;
-  form.maxSeatWaitCapacity = preset.maxSeatWaitCapacity;
-  form.maxSeatWaitTick = preset.maxSeatWaitTick;
+  form.orderingTime = preset.orderingTime;
+  form.eatingTime = preset.eatingTime;
 }
 
 applyPreset(PRESETS.find(p => p.key === 'xuehuo'));
@@ -202,16 +202,16 @@ async function submit() {
             <small>超过后学生计入流失。</small>
           </div>
           <div class="field">
-            <label for="maxSeatWaitCapacity">等座区上限</label>
-            <input id="maxSeatWaitCapacity" v-model.number="form.maxSeatWaitCapacity" type="number" min="20" max="500" />
-            <small>超过后端盘学生会放弃离开。</small>
-            <span class="error">{{ errors.maxSeatWaitCapacity }}</span>
+            <label for="orderingTime">打饭时长（秒/人）</label>
+            <input id="orderingTime" v-model.number="form.orderingTime" type="number" min="5" max="120" />
+            <small>单个学生在窗口打饭的平均耗时。</small>
+            <span class="error">{{ errors.orderingTime }}</span>
           </div>
           <div class="field">
-            <label for="maxSeatWaitTick">等座耐心（秒/Tick）</label>
-            <input id="maxSeatWaitTick" v-model.number="form.maxSeatWaitTick" type="number" min="30" max="1800" />
-            <small>等待超过该秒数则计入等座流失。</small>
-            <span class="error">{{ errors.maxSeatWaitTick }}</span>
+            <label for="eatingTime">用餐时长（秒/人）</label>
+            <input id="eatingTime" v-model.number="form.eatingTime" type="number" min="60" max="1800" />
+            <small>学生坐下后的平均就餐时长，影响座位周转。</small>
+            <span class="error">{{ errors.eatingTime }}</span>
           </div>
           <div class="field">
             <label for="renderThreshold">渲染阈值</label>

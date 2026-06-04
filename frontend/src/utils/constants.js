@@ -25,7 +25,7 @@ export const STATE_COLORS = {
   PATHFINDING: '#2563eb',
   QUEUEING: '#f97316',
   ORDERING: '#7c3aed',
-  WAITING_FOR_SEAT: '#dc2626',
+  WAITING_FOR_SEAT: '#be185d',
   SEEK_SEAT: '#0891b2',
   EATING: '#16a34a',
   LEAVING: '#64748b'
@@ -34,11 +34,11 @@ export const STATE_COLORS = {
 export const DEFAULT_CONFIG = {
   studentCount: 1500,
   windowCount: 10,
-  simDurationTick: 3600,
+  simDurationTick: 5400,
   seatCount: 240,
-  maxQueueCapacity: 40,
-  maxSeatWaitCapacity: 80,
-  maxSeatWaitTick: 240,
+  maxQueueCapacity: 20,
+  orderingTime: 28,
+  eatingTime: 480,
   renderThreshold: 300,
   tickInterval: 100
 };

@@ -274,42 +274,8 @@ function drawStudents(ctx, students, threshold) {
 }
 
 function drawOverlayText(ctx, snapshot, layout) {
-  // top-left info
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.90)';
-  roundRect(ctx, 14, 14, 192, 52, 13);
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(15, 23, 42, 0.06)';
-  ctx.lineWidth = 1;
-  ctx.stroke();
-  ctx.fillStyle = '#0f172a';
-  ctx.font = '800 13px Microsoft YaHei, sans-serif';
-  ctx.textAlign = 'left';
-  ctx.fillText(`Tick：${snapshot.tick}`, 28, 36);
-  ctx.fillStyle = '#475569';
-  ctx.font = '700 11px Microsoft YaHei, sans-serif';
-  ctx.fillText(`在场：${snapshot.stats?.activeCount ?? 0}`, 28, 54);
-
-  // waiting-for-seat badge (left edge, vertically centered)
-  const waitCount = snapshot.stats?.waitingSeatCount ?? 0;
-  if (waitCount > 0) {
-    const bx = 14;
-    const by = layout.seatArea.y + 30;
-    const label = `等座 ${waitCount} 人`;
-    ctx.font = '800 12px Microsoft YaHei, sans-serif';
-    const tw = ctx.measureText(label).width;
-    const pw = tw + 20;
-
-    ctx.fillStyle = 'rgba(220, 38, 38, 0.12)';
-    roundRect(ctx, bx, by, pw, 28, 10);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(220, 38, 38, 0.35)';
-    ctx.lineWidth = 1.2;
-    ctx.stroke();
-
-    ctx.fillStyle = '#dc2626';
-    ctx.textAlign = 'left';
-    ctx.fillText(label, bx + 10, by + 19);
-  }
+  // Tick/在场/等座 信息已经在左侧面板的"仿真进度"和"实时指标"里显示，
+  // 画布上不再重复浮动框。
 }
 
 function heatColor(t) {

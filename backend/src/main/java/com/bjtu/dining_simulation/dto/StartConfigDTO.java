@@ -9,6 +9,6 @@ public class StartConfigDTO {
     private int simDurationTick;
     private int seatCount;
     private int maxQueueLength;
-    private int maxSeatWaitCapacity;
-    private int maxSeatWaitTick;
+    private int orderingTime;
+    private int eatingTime;
 }

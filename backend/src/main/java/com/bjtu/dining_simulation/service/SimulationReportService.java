@@ -132,8 +132,11 @@ public class SimulationReportService {
     }
 
     private String diagnoseBottleneck(double avgWaitTime, double avgSeatWaitTime, double lossRate, int maxSeatWaiting) {
-        boolean windowPressure = lossRate > 0.06 || avgWaitTime > 120 || simService.getQueueLostCount() > 0;
-        boolean seatPressure = avgSeatWaitTime > 70 || maxSeatWaiting > 45 || simService.getSeatAbandonCount() > 0;
+        // 打饭时长 28 秒/人，N 个窗口理论吞吐 ≈ N/28 人/秒；
+        // 阈值按"明显排队感"设定：排队 >3 分钟 或 流失 >5%
+        boolean windowPressure = lossRate > 0.05 || avgWaitTime > 180;
+        // 等座阈值：找座 >2 分钟 或 等座峰值 >30 人
+        boolean seatPressure = avgSeatWaitTime > 120 || maxSeatWaiting > 30;
         if (windowPressure && seatPressure) return "窗口与座位双重瓶颈";
         if (windowPressure) return "窗口服务瓶颈";
         if (seatPressure) return "座位资源瓶颈";
@@ -150,10 +153,10 @@ public class SimulationReportService {
 
     private String buildBottleneckReason(String type, double avgWaitTime, double avgSeatWaitTime, double lossRate, int maxSeatWaiting) {
         return switch (type) {
-            case "窗口服务瓶颈" -> String.format("平均排队约 %s，流失率 %.1f%%，说明学生主要卡在窗口队列。", formatDuration(avgWaitTime), lossRate * 100);
-            case "座位资源瓶颈" -> String.format("平均等座约 %s，等座峰值 %d 人，说明打饭后找座位是主要压力。", formatDuration(avgSeatWaitTime), maxSeatWaiting);
-            case "窗口与座位双重瓶颈" -> String.format("平均排队约 %s、平均等座约 %s，窗口和座位都存在高峰压力。", formatDuration(avgWaitTime), formatDuration(avgSeatWaitTime));
-            default -> "排队、等座和流失指标都处于较低区间，当前资源配置相对均衡。";
+            case "窗口服务瓶颈" -> String.format("平均排队约 %s，窗口流失率 %.1f%%，学生主要卡在打饭窗口的队列上。", formatDuration(avgWaitTime), lossRate * 100);
+            case "座位资源瓶颈" -> String.format("平均找座约 %s，找座峰值 %d 人，打完饭后找座是主要压力。", formatDuration(avgSeatWaitTime), maxSeatWaiting);
+            case "窗口与座位双重瓶颈" -> String.format("平均排队 %s、平均找座 %s，窗口与座位均承压。", formatDuration(avgWaitTime), formatDuration(avgSeatWaitTime));
+            default -> "排队、找座、流失三项指标都处于较低区间，当前资源配置基本均衡。";
         };
     }
 
@@ -163,17 +166,21 @@ public class SimulationReportService {
                 .max(Comparator.comparingDouble(w -> w.getAvgQueueTimeIncludingCurrent(simService.getGlobalTickCounter()) + w.getPeakQueueLength() * 4.0));
         if (hot.isPresent()) {
             Window w = hot.get();
-            if (w.getAvgQueueTimeIncludingCurrent(simService.getGlobalTickCounter()) > 120 || w.getPeakQueueLength() > 18) {
-                return String.format("%s 长期高负载，建议高峰期增设同类备餐点或安排预制分流。", w.getDishName());
+            double avgWait = w.getAvgQueueTimeIncludingCurrent(simService.getGlobalTickCounter());
+            int peak = w.getPeakQueueLength();
+            if (avgWait > 240 || peak >= 18) {
+                return String.format("%s 长期高负载（平均等待 %s、峰值队长 %d 人），建议高峰期增设同类备餐点或安排预制分流。",
+                        w.getDishName(), formatDuration(avgWait), peak);
             }
         }
         return "热门菜品窗口负载暂未明显失衡，可继续观察多轮仿真结果。";
     }
 
     private String calculateScore(double lossRate, double avgWaitTime, double avgSeatWaitTime, int maxSeatWaiting) {
-        if (lossRate > 0.15 || avgWaitTime > 240 || avgSeatWaitTime > 180 || maxSeatWaiting > 120) return "极度拥挤";
-        if (lossRate > 0.06 || avgWaitTime > 150 || avgSeatWaitTime > 90 || maxSeatWaiting > 60) return "偏拥挤";
-        if (avgWaitTime > 80 || avgSeatWaitTime > 30 || maxSeatWaiting > 20) return "基本可控";
+        // 阈值基于"打饭 28 秒/人 + 用餐 8 分钟"模型重新校准
+        if (lossRate > 0.15 || avgWaitTime > 360 || avgSeatWaitTime > 240 || maxSeatWaiting > 80) return "极度拥挤";
+        if (lossRate > 0.08 || avgWaitTime > 240 || avgSeatWaitTime > 150 || maxSeatWaiting > 50) return "偏拥挤";
+        if (lossRate > 0.02 || avgWaitTime > 150 || avgSeatWaitTime > 60 || maxSeatWaiting > 20) return "基本可控";
         return "运行顺畅";
     }
 
@@ -182,18 +189,20 @@ public class SimulationReportService {
         List<String> suggestions = new ArrayList<>();
         suggestions.add("当前主要瓶颈：" + bottleneckType + "。");
 
-        if (lossRate > 0.15 || queueLostCount > 0 && avgWaitTime > 180) {
-            suggestions.add("窗口排队承载能力不足，建议增加 2—3 个开放窗口，或提高热门窗口服务效率。");
-        } else if (lossRate > 0.06 || avgWaitTime > 150) {
-            suggestions.add("排队压力偏高，建议增加 1—2 个窗口，并优化窗口分流引导。");
-        } else if (avgWaitTime > 80) {
-            suggestions.add("排队时间略高，可在高峰时临时增开窗口。");
+        // 窗口侧建议（基于流失率和排队时长）
+        if (lossRate > 0.15) {
+            suggestions.add(String.format("窗口流失率达 %.1f%%，窗口承载严重不足，建议增加 2—3 个开放窗口或缩短打饭时长。", lossRate * 100));
+        } else if (lossRate > 0.05 || avgWaitTime > 240) {
+            suggestions.add("排队压力偏高，建议增加 1—2 个窗口或优化窗口分流引导。");
+        } else if (avgWaitTime > 120) {
+            suggestions.add("排队时间略长，可在高峰时段临时增开窗口。");
         }
 
-        if (seatAbandonCount > 0 || avgSeatWaitTime > 120 || maxSeatWaiting > 90) {
-            suggestions.add("座位瓶颈明显，建议增加座位、扩大等座区或引导错峰就餐。");
-        } else if (avgSeatWaitTime > 60 || maxSeatWaiting > 40) {
-            suggestions.add("端盘等座压力偏高，建议提高翻台效率并增加高峰期座位引导。");
+        // 座位侧建议（仅基于实际等座时长和峰值）
+        if (avgSeatWaitTime > 180 || maxSeatWaiting > 60) {
+            suggestions.add("座位资源不足，建议增加座位或引导错峰就餐。");
+        } else if (avgSeatWaitTime > 90 || maxSeatWaiting > 30) {
+            suggestions.add("找座时间偏长，建议提高翻台效率或在高峰期增设临时餐位。");
         }
 
         if (hotWindowSuggestion != null && !hotWindowSuggestion.contains("暂未明显")) {

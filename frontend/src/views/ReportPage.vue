@@ -28,6 +28,14 @@ const reportType = computed(() => props.report?.reportType || '最终报告');
 const reportNote = computed(() => props.report?.reportNote || '本报告展示当前可用的仿真统计数据。');
 const bottleneckType = computed(() => props.report?.bottleneckType || summary.value.bottleneckType || '未诊断');
 const bottleneckReason = computed(() => props.report?.bottleneckReason || '本次报告未返回瓶颈原因。');
+const generated = computed(() => summary.value.generated ?? 0);
+const served = computed(() => summary.value.served ?? 0);
+const finished = computed(() => summary.value.finished ?? 0);
+const queueLost = computed(() => summary.value.queueLost ?? summary.value.lost ?? 0);
+const serviceRate = computed(() => {
+  const g = generated.value;
+  return g > 0 ? ((served.value / g) * 100).toFixed(1) : '0.0';
+});
 
 function tickToMinutes(value) {
   return (Number(value || 0) / 60).toFixed(2);
@@ -135,18 +143,22 @@ function exportCsv() {
     ['预计人数', props.config.studentCount],
     ['开放窗口数', props.config.windowCount],
     ['座位数', props.config.seatCount],
+    ['仿真时长/秒', props.config.simDurationTick],
+    ['入场总人数', generated.value],
+    ['完成就餐人数', finished.value],
+    ['成功打饭人数', served.value],
+    ['窗口流失人数', queueLost.value],
     ['平均排队时长/min', avgWaitMinute.value],
-    ['平均等座时长/min', avgSeatWaitMinute.value],
+    ['平均找座时长/min', avgSeatWaitMinute.value],
     ['座位周转率', turnover.value],
-    ['人群流失率/%', lossRatePercent.value],
-    ['最大拥堵人数', summary.value.maxCongestion],
-    ['等座峰值', summary.value.maxSeatWaiting],
-    ['排队流失人数', summary.value.queueLost],
-    ['等座放弃人数', summary.value.seatAbandoned],
+    ['窗口流失率/%', lossRatePercent.value],
+    ['服务完成率/%', serviceRate.value],
+    ['同屏峰值人数', summary.value.maxCongestion],
+    ['找座峰值人数', summary.value.maxSeatWaiting],
     ['主要瓶颈', bottleneckType.value],
     ['瓶颈原因', bottleneckReason.value],
-    ['评分', props.report.score],
-    ['建议', props.report.suggestion]
+    ['综合评分', props.report.score],
+    ['优化建议', props.report.suggestion]
   ];
   downloadCsv(`simulation-report-${props.report.simId || Date.now()}.csv`, rows);
 }
@@ -173,7 +185,12 @@ watch(() => props.report, () => nextTick(renderCharts), { deep: true });
         <span class="badge"><span class="status-dot"></span> {{ reportType }}</span>
         <h2>本次仿真状况：<em>{{ report.score }}</em></h2>
         <p class="meta-line">{{ report.createdAt }} · {{ reportSource }}</p>
-        <p class="report-note">{{ reportNote }} <span>时间单位：1 Tick ≈ 1 秒，页面已换算为分钟/秒展示。</span></p>
+        <p class="report-note">
+          {{ reportNote }}
+          <span>
+            到达模型：泊松分布（每 Tick 独立抽样）；打饭时长：约 {{ config.orderingTime ?? 28 }} 秒；用餐时长：约 {{ ((config.eatingTime ?? 480) / 60).toFixed(0) }} 分钟；流失仅记录因窗口队列已满被拒入场的学生。1 Tick ≈ 1 秒，页面已换算为分钟/秒展示。
+          </span>
+        </p>
       </div>
       <div class="report-actions">
         <button class="ghost-btn" @click="emit('back')">← 返回监控</button>
@@ -183,12 +200,12 @@ watch(() => props.report, () => nextTick(renderCharts), { deep: true });
     </div>
 
     <div class="metric-strip">
-      <MetricCard label="平均排队时长" :value="avgWaitMinute" unit="min" hint="1 Tick≈1秒换算" />
-      <MetricCard label="端盘等座时长" :value="avgSeatWaitMinute" unit="min" hint="1 Tick≈1秒换算" tone="orange" />
-      <MetricCard label="座位周转率" :value="turnover" unit="次/座" hint="服务人数 / 座位数量" tone="green" />
-      <MetricCard label="人群流失率" :value="lossRatePercent" unit="%" hint="队列满载或等座超时" tone="red" />
-      <MetricCard label="最大拥堵人数" :value="summary.maxCongestion ?? 0" unit="人" hint="运行期间同屏峰值" tone="purple" />
-      <MetricCard label="等座峰值" :value="summary.maxSeatWaiting ?? 0" unit="人" hint="端盘等座区最大值" tone="orange" />
+      <MetricCard label="平均排队时长" :value="avgWaitMinute" unit="min" hint="从进入队伍到开始打饭" />
+      <MetricCard label="平均找座时长" :value="avgSeatWaitMinute" unit="min" hint="从打完饭到坐下用餐" tone="orange" />
+      <MetricCard label="座位周转率" :value="turnover" unit="次/座" hint="完成就餐人数 / 总座位数" tone="green" />
+      <MetricCard label="窗口流失率" :value="lossRatePercent" unit="%" hint="窗口队列已满，学生被拒于门外" tone="red" />
+      <MetricCard label="同屏峰值" :value="summary.maxCongestion ?? 0" unit="人" hint="单帧最高在场人数" tone="purple" />
+      <MetricCard label="服务完成率" :value="serviceRate" unit="%" hint="成功打到饭 / 入场总人数" tone="green" />
     </div>
 
     <div class="diagnosis-row">
