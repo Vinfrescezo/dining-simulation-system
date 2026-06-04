@@ -121,6 +121,26 @@ export class EventPlayer {
       perStudent.get(evt.studentId).push(evt);
     }
 
+    // ── Pre-pass: compute queue index for each student at QUEUE time ──
+    const queueJoinIndex = new Map();
+    const winQueueSize = new Map();
+    const studentWinMap = new Map();
+    for (const w of this.layout.windows) winQueueSize.set(w.id, 0);
+    for (const evt of events) {
+      if (evt.type === 'ARRIVE') {
+        studentWinMap.set(evt.studentId, evt.targetId);
+      } else if (evt.type === 'QUEUE') {
+        const wid = studentWinMap.get(evt.studentId);
+        if (wid != null) {
+          queueJoinIndex.set(evt.studentId, winQueueSize.get(wid) || 0);
+          winQueueSize.set(wid, (winQueueSize.get(wid) || 0) + 1);
+        }
+      } else if (evt.type === 'ORDER_START') {
+        const wid = studentWinMap.get(evt.studentId);
+        if (wid != null) winQueueSize.set(wid, Math.max(0, (winQueueSize.get(wid) || 0) - 1));
+      }
+    }
+
     const exitLane = this.layout.exitLane;
 
     for (const [studentId, evts] of perStudent) {
@@ -140,7 +160,8 @@ export class EventPlayer {
           case 'QUEUE': {
             const win = this.windowMap.get(windowId);
             if (win) {
-              const spot = getQueueSpot(win, 0);
+              const idx = queueJoinIndex.get(studentId) ?? 0;
+              const spot = getQueueSpot(win, idx);
               waypoints.push({ tick: evt.tick, x: spot.x, y: spot.y, state: QUEUEING, windowId, isQueue: true });
             }
             break;
@@ -151,11 +172,12 @@ export class EventPlayer {
             const x = win ? win.x : evt.x;
             const y = win ? win.y + 28 : evt.y;
             const prevWp = waypoints.at(-1);
-            if (prevWp && prevWp.state === QUEUEING && prevWp.tick < evt.tick) {
+            if (prevWp && prevWp.state === QUEUEING && prevWp.tick < evt.tick && win) {
               const walkTicks = 6;
               const walkStart = Math.max(prevWp.tick + 1, evt.tick - walkTicks);
-              waypoints.push({ tick: walkStart, x: prevWp.x, y: prevWp.y, state: QUEUEING, windowId, isQueue: true });
-              waypoints.push({ tick: walkStart, x: prevWp.x, y: prevWp.y, state: PATHFINDING, windowId });
+              const front = getQueueSpot(win, 0);
+              waypoints.push({ tick: walkStart, x: front.x, y: front.y, state: QUEUEING, windowId, isQueue: true });
+              waypoints.push({ tick: walkStart, x: front.x, y: front.y, state: PATHFINDING, windowId });
             }
             waypoints.push({ tick: evt.tick, x, y, state: ORDERING, windowId });
             break;
@@ -169,9 +191,11 @@ export class EventPlayer {
             const earlyDep = Math.min(4, Math.max(0, orderDur - 2));
             const depTick = evt.tick - earlyDep;
             const gap = nextEvt ? nextEvt.tick - depTick - 1 : 12;
-            const stepTicks = Math.max(2, Math.min(10, gap));
+            const stepTicks = Math.max(3, Math.min(10, gap));
+            const sideTicks = Math.max(1, Math.floor(stepTicks / 3));
             waypoints.push({ tick: depTick, x: ox, y: oy, state: SEEK_SEAT, windowId });
-            waypoints.push({ tick: depTick + stepTicks, x: ox, y: oy + 70, state: SEEK_SEAT, windowId });
+            waypoints.push({ tick: depTick + sideTicks, x: ox + 30, y: oy + 15, state: SEEK_SEAT, windowId });
+            waypoints.push({ tick: depTick + stepTicks, x: ox + 30, y: oy + 80, state: SEEK_SEAT, windowId });
             break;
           }
 
