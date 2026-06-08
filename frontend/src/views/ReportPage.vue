@@ -13,10 +13,12 @@ const props = defineProps({
 const emit = defineEmits(['restart', 'back']);
 const trendRef = ref(null);
 const barRef = ref(null);
+const arrivalRef = ref(null);
 const historyList = ref([]);
 const historyLoading = ref(false);
 let trendChart = null;
 let barChart = null;
+let arrivalChart = null;
 
 const summary = computed(() => props.report?.summary ?? {});
 const avgWaitMinute = computed(() => ((summary.value.avgWaitTime ?? 0) / 60).toFixed(1));
@@ -68,8 +70,10 @@ function renderCharts() {
   if (!props.report) return;
   trendChart?.dispose();
   barChart?.dispose();
+  arrivalChart?.dispose();
   trendChart = echarts.init(trendRef.value);
   barChart = echarts.init(barRef.value);
+  if (arrivalRef.value) arrivalChart = echarts.init(arrivalRef.value);
 
   const trend = props.report.trend || [];
   trendChart.setOption({
@@ -128,11 +132,52 @@ function renderCharts() {
       }
     ]
   });
+
+  // 人数到达曲线
+  if (arrivalChart) {
+    const arrivals = props.report.arrivalTrend || [];
+    arrivalChart.setOption({
+      tooltip: {
+        trigger: 'axis',
+        formatter(params) {
+          const p = params?.[0];
+          if (!p) return '';
+          return `Tick ${p.axisValue}<br/>${p.marker}本采样到达：${p.value} 人`;
+        }
+      },
+      legend: { top: 6, right: 12, textStyle: { fontWeight: 700 } },
+      grid: { left: 52, right: 28, top: 48, bottom: 42 },
+      xAxis: {
+        type: 'category',
+        data: arrivals.map(item => item.tick),
+        name: '时间（秒）',
+        nameLocation: 'end',
+        nameTextStyle: { color: '#64748b' }
+      },
+      yAxis: { type: 'value', name: '到达人数', minInterval: 1, nameTextStyle: { color: '#64748b' } },
+      series: [
+        {
+          name: '每 10 秒到达',
+          type: 'bar',
+          barMaxWidth: 14,
+          itemStyle: {
+            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+              { offset: 0, color: '#3b82f6' },
+              { offset: 1, color: '#93c5fd' }
+            ]),
+            borderRadius: [3, 3, 0, 0]
+          },
+          data: arrivals.map(item => item.arrivals ?? 0)
+        }
+      ]
+    });
+  }
 }
 
 function resizeCharts() {
   trendChart?.resize();
   barChart?.resize();
+  arrivalChart?.resize();
 }
 
 function exportCsv() {
@@ -235,6 +280,12 @@ watch(() => props.report, () => nextTick(renderCharts), { deep: true });
         <div ref="barRef" class="chart"></div>
       </article>
     </div>
+
+    <article class="chart-card full-chart-card">
+      <h3>人数到达曲线</h3>
+      <p class="table-note">每 10 个 Tick（约 10 秒）采样一次新入场学生数，体现泊松分布到达的随机波动。</p>
+      <div ref="arrivalRef" class="chart"></div>
+    </article>
 
     <article class="table-card">
       <h3>窗口性能明细</h3>
@@ -444,6 +495,14 @@ watch(() => props.report, () => nextTick(renderCharts), { deep: true });
   background: rgba(255, 255, 255, 0.96);
   border: 1px solid rgba(15, 23, 42, 0.08);
   box-shadow: 0 14px 36px rgba(15, 23, 42, 0.06);
+}
+
+.full-chart-card {
+  margin-bottom: 24px;
+}
+
+.full-chart-card .chart {
+  height: 260px;
 }
 
 .chart-card h3 {

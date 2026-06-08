@@ -230,7 +230,12 @@ function generateCurrentReport() {
 
 function finish(report) {
   cleanup();
-  emit('finished', report ?? buildPartialReport());
+  const r = report ?? buildPartialReport();
+  // 补充到达样本，让报告页可以绘制到达曲线
+  if (!r.arrivalTrend && arrivalSamples.value.length > 0) {
+    r.arrivalTrend = [...arrivalSamples.value];
+  }
+  emit('finished', r);
 }
 
 function buildPartialReport() {

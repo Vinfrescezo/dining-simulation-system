@@ -137,7 +137,6 @@ async function submit() {
         <span class="hero-tag">BJTU · 2025</span>
       </div>
       <h2>就餐场景<br/>仿真配置</h2>
-      <p>选择食堂场景快速填充参数，也可手动调整后开始仿真。</p>
 
       <div class="preset-section">
         <div class="preset-label">选择食堂场景</div>
@@ -151,7 +150,6 @@ async function submit() {
           >
             <strong>{{ p.name }}</strong>
             <span class="preset-meta">{{ p.windowCount }}窗口 · {{ p.seatCount }}座 · {{ p.studentCount }}人</span>
-            <small>{{ p.desc }}</small>
           </button>
         </div>
       </div>
@@ -160,7 +158,6 @@ async function submit() {
     <form class="config-form" @submit.prevent="submit">
       <div class="form-header">
         <h3>基础参数配置</h3>
-        <span class="form-subtitle">核心仿真变量</span>
       </div>
 
       <div class="grid-2">

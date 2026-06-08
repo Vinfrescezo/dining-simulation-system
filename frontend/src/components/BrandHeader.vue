@@ -25,7 +25,6 @@ const steps = [
           <span class="badge"><span class="status-dot"></span> Dining Simulation System</span>
         </div>
         <h1>北京交通大学就餐仿真系统</h1>
-        <p>校园食堂排队与座位利用率仿真分析平台</p>
       </div>
 
       <nav class="step-nav">
