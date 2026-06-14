@@ -11,4 +11,6 @@ public class StartConfigDTO {
     private int maxQueueLength;
     private int orderingTime;
     private int eatingTime;
+    /** 就餐时段：LUNCH=中午高峰，DINNER=晚间高峰 */
+    private String mealPeriod = "LUNCH";
 }

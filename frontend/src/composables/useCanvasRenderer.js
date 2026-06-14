@@ -183,26 +183,37 @@ function drawWindows(ctx, layout, snapshotWindows) {
     const qLen = info.qLen ?? 0;
     const dishName = info.dishName || win.id;
     const rank = info.popularityRank;
+    // compact "浮标"模式：窗口数较多时自动启用，由 layout 决定
+    const compact = Boolean(win.compact || layout.windows.length > 12);
+    const boxW = compact ? (win.boxW || 60) : (win.boxW || 108);
+    const boxH = compact ? (win.boxH || 62) : (win.boxH || 76);
+    const left = win.x - boxW / 2;
+    const top = win.y - boxH / 2;
 
     ctx.fillStyle = qLen > 24 ? '#fee2e2' : qLen > 12 ? '#ffedd5' : '#dbeafe';
-    roundRect(ctx, win.x - 54, win.y - 38, 108, 76, 14);
+    roundRect(ctx, left, top, boxW, boxH, compact ? 12 : 14);
     ctx.fill();
     ctx.strokeStyle = rank && rank <= 3 ? 'rgba(220, 38, 38, 0.40)' : 'rgba(0, 64, 152, 0.18)';
     ctx.lineWidth = rank && rank <= 3 ? 2 : 1.2;
     ctx.stroke();
 
-    ctx.fillStyle = 'rgba(15,23,42,0.4)';
-    ctx.font = '700 9px Microsoft YaHei, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(win.id, win.x, win.y - 18);
-
     ctx.fillStyle = rank && rank <= 3 ? '#b91c1c' : '#0f172a';
-    ctx.font = '800 15px Microsoft YaHei, sans-serif';
-    const shortName = dishName.length > 5 ? `${dishName.slice(0, 5)}` : dishName;
-    ctx.fillText(shortName, win.x, win.y + 2);
-    ctx.fillStyle = rank && rank <= 3 ? '#dc2626' : '#475569';
-    ctx.font = '800 14px Microsoft YaHei, sans-serif';
-    ctx.fillText(`${qLen}人${rank ? ` · 热${rank}` : ''}`, win.x, win.y + 22);
+    ctx.font = compact ? '900 16px Microsoft YaHei, sans-serif' : '700 9px Microsoft YaHei, sans-serif';
+    ctx.fillText(win.id, win.x, compact ? win.y - 6 : win.y - 18);
+
+    if (!compact) {
+      ctx.font = '800 15px Microsoft YaHei, sans-serif';
+      const shortName = dishName.length > 5 ? `${dishName.slice(0, 5)}` : dishName;
+      ctx.fillText(shortName, win.x, win.y + 2);
+      ctx.fillStyle = rank && rank <= 3 ? '#dc2626' : '#475569';
+      ctx.font = '800 14px Microsoft YaHei, sans-serif';
+      ctx.fillText(`${qLen}人${rank ? ` · 热${rank}` : ''}`, win.x, win.y + 22);
+    } else {
+      ctx.fillStyle = rank && rank <= 3 ? '#dc2626' : '#475569';
+      ctx.font = '800 13px Microsoft YaHei, sans-serif';
+      ctx.fillText(`${qLen}人`, win.x, win.y + 16);
+    }
 
     ctx.strokeStyle = 'rgba(100, 116, 139, 0.12)';
     ctx.lineWidth = 1;

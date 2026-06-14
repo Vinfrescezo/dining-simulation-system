@@ -12,4 +12,7 @@ backend/target/
 backend/.mvn/
 *.class
 
+# 忽略前端构建产物（打包时由 vite build 临时拷贝进来，不应入库）
+backend/src/main/resources/static/
+
 

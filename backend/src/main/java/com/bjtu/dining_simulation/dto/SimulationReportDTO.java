@@ -1,13 +1,22 @@
 package com.bjtu.dining_simulation.dto;
 
 import lombok.Data;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import java.util.List;
 
 @Data
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class SimulationReportDTO {
     private String simId;
     private String createdAt;
+    /** 综合评分展示文本，例如：84分 · 良好 */
     private String score;
+    /** 百分制得分，0—100 */
+    private int numericScore;
+    /** 五级制评级：优秀 / 良好 / 基本可控 / 偏拥挤 / 严重拥挤 */
+    private String gradeLevel;
+    /** 主要扣分项，用于解释评分来源 */
+    private String deductionReason;
     private String suggestion;
     private String bottleneckType;
     private String bottleneckReason;
@@ -22,6 +31,7 @@ public class SimulationReportDTO {
     private List<WindowPerformance> windowPerformance;
 
     @Data
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class Summary {
         private long avgWaitTime;
         private long avgSeatWaitTime;
@@ -40,6 +50,7 @@ public class SimulationReportDTO {
     }
 
     @Data
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class TrendPoint {
         private int tick;
         private int activeCount;
@@ -50,11 +61,13 @@ public class SimulationReportDTO {
     }
 
     @Data
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class WindowPerformance {
         private String id;
         private String dishName;
         private int popularityRank;
         private double popularityScore;
+        private int baseServiceTimeSeconds;
         private double avgQueueLength;
         private double avgWaitTime;
         private int peakQueueLength;

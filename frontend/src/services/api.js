@@ -13,7 +13,8 @@ export async function startSimulation(config) {
     seatCount: config.seatCount,
     maxQueueLength: config.maxQueueLength ?? config.maxQueueCapacity,
     orderingTime: config.orderingTime,
-    eatingTime: config.eatingTime
+    eatingTime: config.eatingTime,
+    mealPeriod: config.mealPeriod ?? 'LUNCH'
   });
   return response.data;
 }
@@ -25,5 +26,10 @@ export async function fetchSimulationReport() {
 
 export async function fetchSimulationHistory(limit = 10) {
   const response = await http.get('/api/simulation/history', { params: { limit } });
+  return response.data;
+}
+
+export async function generateAiReport(report) {
+  const response = await http.post('/api/simulation/ai-report', report, { timeout: 90000 });
   return response.data;
 }

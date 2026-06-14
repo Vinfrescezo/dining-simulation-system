@@ -210,15 +210,18 @@ export class EventPlayer {
 
           case 'SIT': {
             const prevWp = waypoints.at(-1);
-            if (prevWp && prevWp.state === WAITING_FOR_SEAT && prevWp.tick < evt.tick) {
-              // 直线走向座位，固定 5 px/tick 速度（与离场速度一致）
+            // 统一寻座速度：所有学生（不论是否经过等座）都用固定 5 px/tick 直线走向座位，
+            // 与离场速度一致。距离远的学生在 prevWp 原地多停几 tick 后再出发，保证速度恒定。
+            if (prevWp && prevWp.tick < evt.tick && prevWp.state !== EATING) {
               const SEEK_SPEED = 5;
               const dist = Math.hypot(evt.x - prevWp.x, evt.y - prevWp.y);
               const walkTicks = Math.max(2, Math.ceil(dist / SEEK_SPEED));
               const maxGap = evt.tick - prevWp.tick - 1;
-              const useTicks = Math.min(walkTicks, Math.max(1, maxGap));
-              const startTick = evt.tick - useTicks;
-              waypoints.push({ tick: startTick, x: prevWp.x, y: prevWp.y, state: SEEK_SEAT });
+              if (maxGap >= 1) {
+                const useTicks = Math.min(walkTicks, maxGap);
+                const startTick = evt.tick - useTicks;
+                waypoints.push({ tick: startTick, x: prevWp.x, y: prevWp.y, state: SEEK_SEAT });
+              }
             }
             waypoints.push({ tick: evt.tick, x: evt.x, y: evt.y, state: EATING, seatId: evt.targetId });
             break;

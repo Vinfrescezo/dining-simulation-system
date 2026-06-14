@@ -70,6 +70,9 @@ public class SimulationService {
 
         if (config.getOrderingTime() > 0) simulationConfig.setOrderingMu(config.getOrderingTime());
         if (config.getEatingTime() > 0) simulationConfig.setEatingMu(config.getEatingTime());
+        if (config.getMealPeriod() != null && !config.getMealPeriod().isBlank()) {
+            simulationConfig.setMealPeriod(config.getMealPeriod());
+        }
 
         this.resetSimulation(config.getStudentCount(), windows, duration, seats);
 

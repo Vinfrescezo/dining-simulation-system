@@ -5,6 +5,7 @@ import MetricCard from '../components/MetricCard.vue';
 import { LocalDiningSimulator } from '../services/localSimulator';
 import { EventPlayer } from '../services/eventPlayer';
 import { renderCanteen } from '../composables/useCanvasRenderer';
+import { createCanteenLayout } from '../utils/layout';
 
 const props = defineProps({
   config:           { type: Object,  required: true },
@@ -26,8 +27,11 @@ const backendLayout = ref(null);
 const runningMode = ref(props.useLocalFallback ? '本地演示' : '后端事件流');
 const trendHistory = ref([]);
 const arrivalSamples = ref([]);
+const fullArrivalSamples = ref([]);
 const windowSamples = ref(new Map());
 const speedOptions = [0.5, 1, 2, 4, 8];
+const windowTooltip = ref(null);
+const hoveredWindowId = ref(null);
 
 let simulator = null;   // LocalDiningSimulator instance
 let player = null;      // EventPlayer instance
@@ -88,6 +92,33 @@ const arrivalPolyline = computed(() => {
   }).join(' ');
 });
 
+
+function calculateReportScore({ lossRate, avgWaitTime, avgSeatWaitTime, maxSeatWaiting, maxCongestion, windowPerformance }) {
+  const queueScore = avgWaitTime <= 300 ? 30 : avgWaitTime <= 600 ? 25 : avgWaitTime <= 900 ? 20 : avgWaitTime <= 1500 ? 14 : 8;
+  const lossScore = lossRate <= 0.05 ? 25 : lossRate <= 0.10 ? 20 : lossRate <= 0.18 ? 15 : lossRate <= 0.30 ? 8 : 3;
+  const seatScore = (avgSeatWaitTime <= 180 && maxSeatWaiting <= 30) ? 20
+    : (avgSeatWaitTime <= 420 && maxSeatWaiting <= 60) ? 16
+      : (avgSeatWaitTime <= 780 && maxSeatWaiting <= 100) ? 10
+        : (avgSeatWaitTime <= 1200 && maxSeatWaiting <= 140) ? 6 : 2;
+  const avgQueue = windowPerformance.length ? windowPerformance.reduce((sum, item) => sum + (item.avgQueueLength || 0), 0) / windowPerformance.length : 0;
+  const maxQueue = windowPerformance.length ? Math.max(...windowPerformance.map(item => item.avgQueueLength || 0)) : 0;
+  const balanceRatio = avgQueue <= 0.1 ? 1 : maxQueue / Math.max(0.1, avgQueue);
+  const balanceScore = balanceRatio <= 1.3 ? 15 : balanceRatio <= 1.6 ? 12 : balanceRatio <= 2.0 ? 8 : balanceRatio <= 2.5 ? 5 : 2;
+  const rawCapacity = Math.max(1, (props.config.seatCount || 0) + (props.config.windowCount || 0) * Math.max(1, props.config.maxQueueCapacity || 30));
+  const capacity = Math.max(1, Math.round(rawCapacity * 1.35));
+  const pressure = (maxCongestion || 0) / capacity;
+  const pressureScore = pressure <= 0.85 ? 10 : pressure <= 1.05 ? 8 : pressure <= 1.25 ? 6 : pressure <= 1.50 ? 4 : 2;
+  const numericScore = Math.max(0, Math.min(100, queueScore + lossScore + seatScore + balanceScore + pressureScore));
+  const gradeLevel = numericScore >= 90 ? '优秀' : numericScore >= 80 ? '良好' : numericScore >= 70 ? '基本可控' : numericScore >= 60 ? '偏拥挤' : '严重拥挤';
+  const deductions = [];
+  if (queueScore < 20) deductions.push('平均排队时长偏长');
+  if (lossScore < 15) deductions.push('窗口流失率偏高');
+  if (seatScore < 16) deductions.push('找座等待压力偏高');
+  if (balanceScore < 12) deductions.push('热门窗口负载不均衡');
+  if (pressureScore < 6) deductions.push('高峰在场人数接近承载上限');
+  return { numericScore, gradeLevel, deductionReason: deductions.length ? deductions.join('；') : '各项指标较均衡，未出现明显短板。' };
+}
+
 // ── Rendering ──────────────────────────────────────────────────────────────
 function scheduleRender(data) {
   if (renderRaf) cancelAnimationFrame(renderRaf);
@@ -112,6 +143,7 @@ function handleSnapshot(data) {
   const normalized = normalizeSnapshot(data);
   snapshot.value = normalized;
   collectHistory(normalized);
+  refreshWindowTooltip();
   nextTick(() => scheduleRender(normalized));
 
   if (data?.type === 'FINISHED' || data?.finished === true || data?.done === true) {
@@ -162,7 +194,9 @@ function collectHistory(data) {
       waitingSeatCount: data.stats?.waitingSeatCount ?? 0,
       generated: currentGenerated
     });
-    arrivalSamples.value.push({ tick: currentTick, arrivals: pendingArrivalCount });
+    const arrivalPoint = { tick: currentTick, arrivals: pendingArrivalCount };
+    arrivalSamples.value.push(arrivalPoint);
+    fullArrivalSamples.value.push(arrivalPoint);
     pendingArrivalCount = 0;
     lastArrivalSampleTick = currentTick;
     if (arrivalSamples.value.length > 120) arrivalSamples.value.shift();
@@ -193,6 +227,7 @@ function startBackend() {
     onSnapshot: (data) => {
       snapshot.value = data;
       collectHistory(data);
+      refreshWindowTooltip();
       renderCanteen(canvasRef.value, data, props.config, {
         heatmap: heatmapOn.value,
         layout: backendLayout.value
@@ -232,8 +267,8 @@ function finish(report) {
   cleanup();
   const r = report ?? buildPartialReport();
   // 补充到达样本，让报告页可以绘制到达曲线
-  if (!r.arrivalTrend && arrivalSamples.value.length > 0) {
-    r.arrivalTrend = [...arrivalSamples.value];
+  if (!r.arrivalTrend && fullArrivalSamples.value.length > 0) {
+    r.arrivalTrend = [...fullArrivalSamples.value];
   }
   emit('finished', r);
 }
@@ -274,11 +309,7 @@ function buildPartialReport() {
     };
   });
 
-  // 评分与瓶颈诊断（与后端 SimulationReportService 阈值保持一致）
-  const score = (lossRate > 0.15 || avgWaitTime > 360 || avgSeatWaitTime > 240 || maxSeatWaiting > 80) ? '极度拥挤'
-    : (lossRate > 0.08 || avgWaitTime > 240 || avgSeatWaitTime > 150 || maxSeatWaiting > 50) ? '偏拥挤'
-    : (lossRate > 0.02 || avgWaitTime > 150 || avgSeatWaitTime > 60 || maxSeatWaiting > 20) ? '基本可控'
-    : '运行顺畅';
+  const scoreInfo = calculateReportScore({ lossRate, avgWaitTime, avgSeatWaitTime, maxSeatWaiting, maxCongestion, windowPerformance });
 
   const windowPressure = lossRate > 0.05 || avgWaitTime > 180;
   const seatPressure = avgSeatWaitTime > 120 || maxSeatWaiting > 30;
@@ -317,7 +348,10 @@ function buildPartialReport() {
     source: 'backend',
     reportType: '阶段性报告',
     reportNote: `本报告在仿真回放到第 ${tick} 秒（Tick）时生成，统计数据为当前阶段累计结果。`,
-    score,
+    score: `${scoreInfo.numericScore}分 · ${scoreInfo.gradeLevel}`,
+    numericScore: scoreInfo.numericScore,
+    gradeLevel: scoreInfo.gradeLevel,
+    deductionReason: scoreInfo.deductionReason,
     suggestion: suggestions.join(' '),
     bottleneckType,
     bottleneckReason,
@@ -337,9 +371,76 @@ function buildPartialReport() {
       bottleneckType
     },
     trend: trendHistory.value,
-    arrivalTrend: arrivalSamples.value,
+    arrivalTrend: fullArrivalSamples.value,
     windowPerformance
   };
+}
+
+function getCurrentLayout() {
+  return backendLayout.value || createCanteenLayout(props.config);
+}
+
+
+function refreshWindowTooltip() {
+  if (!windowTooltip.value || !hoveredWindowId.value) return;
+  const target = (getCurrentLayout().windows || []).find(win => win.id === hoveredWindowId.value);
+  const info = (snapshot.value?.windows || []).find(item => item.id === hoveredWindowId.value) || target;
+  if (!target || !info) {
+    windowTooltip.value = null;
+    hoveredWindowId.value = null;
+    return;
+  }
+  windowTooltip.value = {
+    ...windowTooltip.value,
+    id: target.id,
+    dishName: info.dishName || target.dishName || target.id,
+    qLen: info.qLen ?? 0,
+    queueCount: info.queueCount ?? info.qLen ?? 0,
+    approachingCount: info.approachingCount ?? 0,
+    orderingCount: info.orderingCount ?? 0,
+    capacityUsed: info.capacityUsed ?? info.qLen ?? 0,
+    rank: info.popularityRank,
+    avgWaitTime: info.avgWaitTime ?? 0
+  };
+}
+
+function handleCanvasMove(event) {
+  const canvas = canvasRef.value;
+  if (!canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  const layout = getCurrentLayout();
+  const x = ((event.clientX - rect.left) / rect.width) * layout.width;
+  const y = ((event.clientY - rect.top) / rect.height) * layout.height;
+  const target = (layout.windows || []).find(win => {
+    const boxW = win.compact || layout.windows.length > 12 ? (win.boxW || 60) : (win.boxW || 108);
+    const boxH = win.compact || layout.windows.length > 12 ? (win.boxH || 62) : (win.boxH || 76);
+    return x >= win.x - boxW / 2 && x <= win.x + boxW / 2 && y >= win.y - boxH / 2 && y <= win.y + boxH / 2;
+  });
+  if (!target) {
+    windowTooltip.value = null;
+    hoveredWindowId.value = null;
+    return;
+  }
+  hoveredWindowId.value = target.id;
+  const info = (snapshot.value?.windows || []).find(item => item.id === target.id) || target;
+  windowTooltip.value = {
+    x: event.clientX - rect.left + 12,
+    y: event.clientY - rect.top + 12,
+    id: target.id,
+    dishName: info.dishName || target.dishName || target.id,
+    qLen: info.qLen ?? 0,
+    queueCount: info.queueCount ?? info.qLen ?? 0,
+    approachingCount: info.approachingCount ?? 0,
+    orderingCount: info.orderingCount ?? 0,
+    capacityUsed: info.capacityUsed ?? info.qLen ?? 0,
+    rank: info.popularityRank,
+    avgWaitTime: info.avgWaitTime ?? 0
+  };
+}
+
+function clearWindowTooltip() {
+  windowTooltip.value = null;
+  hoveredWindowId.value = null;
 }
 
 function cleanup() {
@@ -395,7 +496,7 @@ onBeforeUnmount(cleanup);
             <b>{{ avgWaitDisplay }}</b>
           </div>
           <div class="avg-row">
-            <span>等座均值</span>
+            <span>找座均值</span>
             <b>{{ avgSeatWaitDisplay }}</b>
           </div>
         </div>
@@ -414,7 +515,24 @@ onBeforeUnmount(cleanup);
         </div>
         <CanvasLegend />
       </div>
-      <canvas ref="canvasRef" class="sim-canvas" aria-label="食堂就餐仿真 Canvas 画布"></canvas>
+      <div class="canvas-stage">
+        <canvas
+          ref="canvasRef"
+          class="sim-canvas"
+          aria-label="食堂就餐仿真 Canvas 画布"
+          @mousemove="handleCanvasMove"
+          @mouseleave="clearWindowTooltip"
+        ></canvas>
+        <div v-if="windowTooltip" class="window-tooltip" :style="{ left: `${windowTooltip.x}px`, top: `${windowTooltip.y}px` }">
+          <strong>{{ windowTooltip.id }} {{ windowTooltip.dishName }}</strong>
+          <span>当前排队：{{ windowTooltip.queueCount }} 人</span>
+          <span v-if="windowTooltip.approachingCount">正在前往：{{ windowTooltip.approachingCount }} 人</span>
+          <span v-if="windowTooltip.orderingCount">正在取餐：{{ windowTooltip.orderingCount }} 人</span>
+          <span>容量占用：{{ windowTooltip.capacityUsed }} / {{ config.maxQueueCapacity }}</span>
+          <span v-if="windowTooltip.rank">热度排行：第 {{ windowTooltip.rank }} 名</span>
+          <span>平均等待：{{ formatTickDuration(windowTooltip.avgWaitTime) }}</span>
+        </div>
+      </div>
     </section>
 
     <!-- Right panel -->
@@ -703,6 +821,30 @@ onBeforeUnmount(cleanup);
   background: linear-gradient(135deg, #ef4444, #f97316);
   border-color: transparent;
   box-shadow: 0 4px 12px rgba(239, 68, 68, 0.25);
+}
+
+.canvas-stage {
+  position: relative;
+}
+
+.window-tooltip {
+  position: absolute;
+  z-index: 5;
+  display: grid;
+  gap: 3px;
+  min-width: 150px;
+  padding: 9px 11px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.88);
+  color: #fff;
+  font-size: 11px;
+  line-height: 1.45;
+  pointer-events: none;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.20);
+}
+
+.window-tooltip strong {
+  font-size: 12px;
 }
 
 .sim-canvas {

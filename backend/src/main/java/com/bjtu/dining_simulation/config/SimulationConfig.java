@@ -21,4 +21,6 @@ public class SimulationConfig {
 
     private final double moveSpeed = 14.0;
     private int maxQueueLength = 20;
+    /** 就餐时段：LUNCH=中午高峰，DINNER=晚间高峰（仅供 AI 报告语境使用，不影响仿真模型） */
+    private String mealPeriod = "LUNCH";
 }

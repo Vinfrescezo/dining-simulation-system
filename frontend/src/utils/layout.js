@@ -30,10 +30,15 @@ export function createCanteenLayout({ windowCount = 8, seatCount = 180 } = {}) {
     const gap = Math.min(130, Math.max(68, usableW / Math.max(windowCount - 1, 1)));
     const centeredStartX = serviceArea.x + serviceArea.w / 2 - ((windowCount - 1) * gap) / 2;
     const x = windowCount === 1 ? serviceArea.x + serviceArea.w / 2 : centeredStartX + index * gap;
+    // 窗口数 >12 时切换为紧凑"浮标"样式，避免画布拥挤
+    const compact = windowCount > 12;
     return {
       id: `W${index + 1}`,
       x,
       y: serviceArea.y + 78,
+      compact,
+      boxW: compact ? 60 : 108,
+      boxH: compact ? 62 : 76,
       queueX: x,
       queueStartY: serviceArea.y + 155,
       queueGap: 12

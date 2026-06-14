@@ -9,6 +9,18 @@ const emit = defineEmits(['started']);
 
 const PRESETS = [
   {
+    key: 'custom',
+    name: '自定义配置',
+    desc: '不套用固定餐厅模板，可直接按需要调整人数、窗口、座位与时长。',
+    studentCount: DEFAULT_CONFIG.studentCount,
+    windowCount: DEFAULT_CONFIG.windowCount,
+    seatCount: DEFAULT_CONFIG.seatCount,
+    simDurationTick: DEFAULT_CONFIG.simDurationTick,
+    maxQueueCapacity: DEFAULT_CONFIG.maxQueueCapacity,
+    orderingTime: DEFAULT_CONFIG.orderingTime,
+    eatingTime: DEFAULT_CONFIG.eatingTime
+  },
+  {
     key: 'minghu',
     name: '明湖餐厅',
     desc: '北交大最大餐厅，三层楼面、窗口众多，午高峰人流密集',
@@ -58,7 +70,7 @@ const PRESETS = [
   }
 ];
 
-const activePreset = ref('xuehuo');
+const activePreset = ref('custom');
 
 const form = reactive({
   studentCount: DEFAULT_CONFIG.studentCount,
@@ -68,12 +80,14 @@ const form = reactive({
   maxQueueCapacity: DEFAULT_CONFIG.maxQueueCapacity,
   orderingTime: DEFAULT_CONFIG.orderingTime,
   eatingTime: DEFAULT_CONFIG.eatingTime,
+  mealPeriod: DEFAULT_CONFIG.mealPeriod,
   renderThreshold: DEFAULT_CONFIG.renderThreshold,
   mode: 'local-first'
 });
 
 function applyPreset(preset) {
   activePreset.value = preset.key;
+  if (preset.key === 'custom') return;
   form.studentCount = preset.studentCount;
   form.windowCount = preset.windowCount;
   form.seatCount = preset.seatCount;
@@ -83,7 +97,9 @@ function applyPreset(preset) {
   form.eatingTime = preset.eatingTime;
 }
 
-applyPreset(PRESETS.find(p => p.key === 'xuehuo'));
+function markCustom() {
+  activePreset.value = 'custom';
+}
 
 const errors = reactive({});
 const loading = ref(false);
@@ -97,7 +113,7 @@ function setErrors(nextErrors) {
 async function submit() {
   const config = toPayload(form);
   const preset = PRESETS.find(p => p.key === activePreset.value);
-  if (preset) config.sceneName = preset.name;
+  if (preset && preset.key !== 'custom') config.sceneName = preset.name;
   const result = validateConfig(config);
   setErrors(result.errors);
   if (!result.valid) return;
@@ -134,12 +150,12 @@ async function submit() {
     <div class="hero-copy">
       <div class="hero-badge-row">
         <span class="badge"><span class="status-dot"></span> 参数初始化</span>
-        <span class="hero-tag">BJTU · 2025</span>
+        <span class="hero-tag">BJTU · 2026</span>
       </div>
       <h2>就餐场景<br/>仿真配置</h2>
 
       <div class="preset-section">
-        <div class="preset-label">选择食堂场景</div>
+        <div class="preset-label">选择食堂场景（可选）</div>
         <div class="preset-cards">
           <button
             v-for="p in PRESETS"
@@ -163,28 +179,28 @@ async function submit() {
       <div class="grid-2">
         <div class="field">
           <label for="studentCount">预计下课人数</label>
-          <input id="studentCount" v-model.number="form.studentCount" type="number" min="1" max="4999" />
+          <input id="studentCount" v-model.number="form.studentCount" type="number" min="1" max="4999" @input="markCustom" />
           <small>进入食堂仿真的学生总量，范围 1—4999。</small>
           <span class="error">{{ errors.studentCount }}</span>
         </div>
 
         <div class="field">
           <label for="windowCount">开放窗口数量</label>
-          <input id="windowCount" v-model.number="form.windowCount" type="number" min="1" max="20" />
+          <input id="windowCount" v-model.number="form.windowCount" type="number" min="1" max="20" @input="markCustom" />
           <small>参与服务的打饭窗口数，窗口越多排队压力通常越低。</small>
           <span class="error">{{ errors.windowCount }}</span>
         </div>
 
         <div class="field">
           <label for="simDurationTick">模拟时长（秒/Tick）</label>
-          <input id="simDurationTick" v-model.number="form.simDurationTick" type="number" min="60" max="10800" />
+          <input id="simDurationTick" v-model.number="form.simDurationTick" type="number" min="60" max="10800" @input="markCustom" />
           <small>1 Tick ≈ 1 秒，例如 1200 表示约 20 分钟。</small>
           <span class="error">{{ errors.simDurationTick }}</span>
         </div>
 
         <div class="field">
           <label for="seatCount">座位数量</label>
-          <input id="seatCount" v-model.number="form.seatCount" type="number" min="20" max="1200" />
+          <input id="seatCount" v-model.number="form.seatCount" type="number" min="20" max="1200" @input="markCustom" />
           <small>总座位数，画布按四人桌自动摆放。</small>
           <span class="error">{{ errors.seatCount }}</span>
         </div>
@@ -195,24 +211,32 @@ async function submit() {
         <div class="advanced-grid">
           <div class="field">
             <label for="maxQueueCapacity">单窗口最大队列</label>
-            <input id="maxQueueCapacity" v-model.number="form.maxQueueCapacity" type="number" min="5" max="80" />
+            <input id="maxQueueCapacity" v-model.number="form.maxQueueCapacity" type="number" min="5" max="80" @input="markCustom" />
             <small>超过后学生计入流失。</small>
           </div>
           <div class="field">
             <label for="orderingTime">打饭时长（秒/人）</label>
-            <input id="orderingTime" v-model.number="form.orderingTime" type="number" min="5" max="120" />
+            <input id="orderingTime" v-model.number="form.orderingTime" type="number" min="5" max="120" @input="markCustom" />
             <small>单个学生在窗口打饭的平均耗时。</small>
             <span class="error">{{ errors.orderingTime }}</span>
           </div>
           <div class="field">
             <label for="eatingTime">用餐时长（秒/人）</label>
-            <input id="eatingTime" v-model.number="form.eatingTime" type="number" min="60" max="1800" />
+            <input id="eatingTime" v-model.number="form.eatingTime" type="number" min="60" max="1800" @input="markCustom" />
             <small>学生坐下后的平均就餐时长，影响座位周转。</small>
             <span class="error">{{ errors.eatingTime }}</span>
           </div>
           <div class="field">
+            <label for="mealPeriod">就餐时段</label>
+            <select id="mealPeriod" v-model="form.mealPeriod" @change="markCustom">
+              <option value="LUNCH">中午高峰</option>
+              <option value="DINNER">晚间高峰</option>
+            </select>
+            <small>影响 AI 智能分析报告的语境描述（不改变仿真模型）。</small>
+          </div>
+          <div class="field">
             <label for="renderThreshold">渲染阈值</label>
-            <input id="renderThreshold" v-model.number="form.renderThreshold" type="number" min="50" max="1000" />
+            <input id="renderThreshold" v-model.number="form.renderThreshold" type="number" min="50" max="1000" @input="markCustom" />
             <small>人数超过该值时切换圆点渲染。</small>
           </div>
           <div class="field">

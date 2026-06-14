@@ -69,7 +69,11 @@ public class SimulationReportService {
         String bottleneckReason = buildBottleneckReason(bottleneckType, avgWaitTime, avgSeatWaitTime, lossRate, simService.getMaxSeatWaiting());
         String hotWindowSuggestion = generateHotWindowSuggestion();
 
-        report.setScore(calculateScore(lossRate, avgWaitTime, avgSeatWaitTime, simService.getMaxSeatWaiting()));
+        ScoreResult scoreResult = computeScore(lossRate, avgWaitTime, avgSeatWaitTime, simService.getMaxSeatWaiting());
+        report.setNumericScore(scoreResult.numericScore);
+        report.setGradeLevel(scoreResult.gradeLevel);
+        report.setDeductionReason(scoreResult.deductionReason);
+        report.setScore(scoreResult.numericScore + "分 · " + scoreResult.gradeLevel);
         report.setBottleneckType(bottleneckType);
         report.setBottleneckReason(bottleneckReason);
         report.setTopHotWindowSuggestion(hotWindowSuggestion);
@@ -176,12 +180,55 @@ public class SimulationReportService {
         return "热门菜品窗口负载暂未明显失衡，可继续观察多轮仿真结果。";
     }
 
-    private String calculateScore(double lossRate, double avgWaitTime, double avgSeatWaitTime, int maxSeatWaiting) {
-        // 阈值基于"打饭 28 秒/人 + 用餐 8 分钟"模型重新校准
-        if (lossRate > 0.15 || avgWaitTime > 360 || avgSeatWaitTime > 240 || maxSeatWaiting > 80) return "极度拥挤";
-        if (lossRate > 0.08 || avgWaitTime > 240 || avgSeatWaitTime > 150 || maxSeatWaiting > 50) return "偏拥挤";
-        if (lossRate > 0.02 || avgWaitTime > 150 || avgSeatWaitTime > 60 || maxSeatWaiting > 20) return "基本可控";
-        return "运行顺畅";
+    /** 评分内部封装：百分制 + 五级评级 + 主要扣分项 */
+    private static class ScoreResult {
+        int numericScore;
+        String gradeLevel;
+        String deductionReason;
+    }
+
+    /**
+     * 百分制评分：
+     *   基准 100 分，按四项指标分别扣分（排队时长、等座时长、流失率、等座峰值），
+     *   最终得分落在五级评级区间内：
+     *     90—100 优秀；75—89 良好；60—74 基本可控；40—59 偏拥挤；0—39 严重拥挤
+     * 阈值基于"打饭 28 秒/人 + 用餐 8 分钟"模型校准
+     */
+    private ScoreResult computeScore(double lossRate, double avgWaitTime, double avgSeatWaitTime, int maxSeatWaiting) {
+        int score = 100;
+        List<String> deductions = new ArrayList<>();
+
+        // 排队时长扣分：每超 60 秒扣 4 分，最多扣 30
+        if (avgWaitTime > 60) {
+            int d = (int) Math.min(30, Math.round((avgWaitTime - 60) / 60.0 * 4));
+            if (d > 0) { score -= d; deductions.add(String.format("平均排队 %s（-%d）", formatDuration(avgWaitTime), d)); }
+        }
+        // 找座时长扣分：每超 30 秒扣 3 分，最多扣 20
+        if (avgSeatWaitTime > 30) {
+            int d = (int) Math.min(20, Math.round((avgSeatWaitTime - 30) / 30.0 * 3));
+            if (d > 0) { score -= d; deductions.add(String.format("平均找座 %s（-%d）", formatDuration(avgSeatWaitTime), d)); }
+        }
+        // 窗口流失扣分：每 1% 扣 2 分，最多扣 30
+        if (lossRate > 0.005) {
+            int d = (int) Math.min(30, Math.round(lossRate * 100 * 2));
+            if (d > 0) { score -= d; deductions.add(String.format("窗口流失 %.1f%%（-%d）", lossRate * 100, d)); }
+        }
+        // 等座峰值扣分：每超过 20 人扣 1.5 分，最多扣 20
+        if (maxSeatWaiting > 20) {
+            int d = (int) Math.min(20, Math.round((maxSeatWaiting - 20) * 1.5));
+            if (d > 0) { score -= d; deductions.add(String.format("等座峰值 %d 人（-%d）", maxSeatWaiting, d)); }
+        }
+        score = Math.max(0, Math.min(100, score));
+
+        ScoreResult r = new ScoreResult();
+        r.numericScore = score;
+        if (score >= 90) r.gradeLevel = "优秀";
+        else if (score >= 75) r.gradeLevel = "良好";
+        else if (score >= 60) r.gradeLevel = "基本可控";
+        else if (score >= 40) r.gradeLevel = "偏拥挤";
+        else r.gradeLevel = "严重拥挤";
+        r.deductionReason = deductions.isEmpty() ? "各项指标均处于较低区间，未有明显扣分。" : String.join("；", deductions) + "。";
+        return r;
     }
 
     private String generateSuggestion(double avgWaitTime, double avgSeatWaitTime, double lossRate, int maxSeatWaiting,

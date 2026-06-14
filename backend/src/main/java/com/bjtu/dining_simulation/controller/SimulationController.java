@@ -8,6 +8,7 @@ import com.bjtu.dining_simulation.dto.StartResponseDTO;
 import com.bjtu.dining_simulation.dto.SimulationReportDTO;
 import com.bjtu.dining_simulation.service.SimulationService;
 import com.bjtu.dining_simulation.service.SimulationReportService;
+import com.bjtu.dining_simulation.service.AiReportService;
 
 import java.util.List;
 import java.util.Map;
@@ -19,6 +20,7 @@ public class SimulationController {
 
     @Autowired private SimulationService simulationService;
     @Autowired private SimulationReportService reportService;
+    @Autowired private AiReportService aiReportService;
 
     @PostMapping("/start")
     public StartResponseDTO startSimulation(@RequestBody StartConfigDTO config) {
@@ -45,5 +47,10 @@ public class SimulationController {
     @GetMapping("/history")
     public List<Map<String, Object>> getHistory(@RequestParam(defaultValue = "10") int limit) {
         return reportService.listRecentReports(limit);
+    }
+
+    @PostMapping("/ai-report")
+    public Map<String, Object> generateAiReport(@RequestBody SimulationReportDTO report) {
+        return aiReportService.generateAnalysis(report);
     }
 }

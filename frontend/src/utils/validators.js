@@ -47,6 +47,7 @@ export function toPayload(config) {
     maxQueueCapacity: Number(config.maxQueueCapacity),
     orderingTime: Number(config.orderingTime),
     eatingTime: Number(config.eatingTime),
+    mealPeriod: config.mealPeriod || 'LUNCH',
     renderThreshold: Number(config.renderThreshold)
   };
 }

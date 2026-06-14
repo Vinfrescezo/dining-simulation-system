@@ -39,6 +39,7 @@ export const DEFAULT_CONFIG = {
   maxQueueCapacity: 20,
   orderingTime: 28,
   eatingTime: 480,
+  mealPeriod: 'LUNCH',
   renderThreshold: 300,
   tickInterval: 100
 };
