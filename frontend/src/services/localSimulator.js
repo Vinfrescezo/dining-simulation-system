@@ -302,49 +302,73 @@ export class LocalDiningSimulator {
   }
 
   findBestSeat(student) {
-    const free = this.seats.filter(s => s.occupiedBy === null);
-    if (free.length === 0) return null;
+    // 三阶段优先策略：A 完全空桌 → B "1 人桌"的斜对角 → C 兜底距离最近
+    if (!this.seats.some(s => s.occupiedBy === null)) return null;
 
     const DIAGONAL = { top: 'bottom', bottom: 'top', left: 'right', right: 'left' };
-    const tableOccupancy = new Map();
-    for (const s of this.seats) {
-      if (!tableOccupancy.has(s.tableId)) tableOccupancy.set(s.tableId, 0);
-      if (s.occupiedBy !== null) tableOccupancy.set(s.tableId, tableOccupancy.get(s.tableId) + 1);
-    }
-
     const sx = student.x;
     const sy = student.y;
-    const maxDist = Math.hypot(this.layout.width, this.layout.height);
-    const seatAreaTop = this.layout.seatArea.y;
-    const seatAreaH = this.layout.seatArea.h;
 
-    const scored = [];
-    for (const seat of free) {
-      const dist = Math.hypot(seat.x - sx, seat.y - sy);
-      const distScore = 1 - dist / maxDist;
-
-      const rowRatio = (seat.y - seatAreaTop) / seatAreaH;
-      const depthScore = 1 - rowRatio * 0.7;
-
-      const occ = tableOccupancy.get(seat.tableId) ?? 0;
-      let socialScore;
-      if (occ === 0) {
-        socialScore = 1.0;
-      } else {
-        const tableSeats = this.seats.filter(s => s.tableId === seat.tableId);
-        const occupied = tableSeats.filter(s => s.occupiedBy !== null);
-        const isDiag = occupied.every(s => DIAGONAL[s.position] === seat.position);
-        socialScore = isDiag ? 0.7 : 0.3 - occ * 0.1;
-      }
-
-      const score = distScore * 0.35 + depthScore * 0.3 + socialScore * 0.35;
-      scored.push({ seat, score });
+    // 按 tableId 分组
+    const tables = new Map();
+    for (const seat of this.seats) {
+      if (!tables.has(seat.tableId)) tables.set(seat.tableId, []);
+      tables.get(seat.tableId).push(seat);
     }
 
-    scored.sort((a, b) => b.score - a.score);
-    const topN = Math.min(scored.length, Math.max(3, Math.ceil(scored.length * 0.15)));
-    const pick = Math.floor(Math.random() * topN);
-    return scored[pick].seat;
+    // 算每桌的中心、占用数、占用位置
+    const tableInfo = new Map();
+    for (const [tid, ts] of tables) {
+      let cx = 0, cy = 0, occ = 0;
+      const occPos = [];
+      for (const s of ts) {
+        cx += s.x;
+        cy += s.y;
+        if (s.occupiedBy !== null) {
+          occ++;
+          occPos.push(s.position);
+        }
+      }
+      tableInfo.set(tid, { cx: cx / ts.length, cy: cy / ts.length, occ, occPos });
+    }
+
+    // ── 阶段 A：找最近的完全空桌 ──
+    let bestEmpty = null, bestEmptyDist = Infinity;
+    for (const [tid, info] of tableInfo) {
+      if (info.occ !== 0) continue;
+      const d = Math.hypot(info.cx - sx, info.cy - sy);
+      if (d < bestEmptyDist) { bestEmptyDist = d; bestEmpty = tid; }
+    }
+    if (bestEmpty) {
+      let closest = null, minDist = Infinity;
+      for (const s of tables.get(bestEmpty)) {
+        if (s.occupiedBy !== null) continue;
+        const d = Math.hypot(s.x - sx, s.y - sy);
+        if (d < minDist) { minDist = d; closest = s; }
+      }
+      if (closest) return closest;
+    }
+
+    // ── 阶段 B：找最近的"1 人桌"且斜对角可用 ──
+    let bestDiagSeat = null, bestOneDist = Infinity;
+    for (const [tid, info] of tableInfo) {
+      if (info.occ !== 1) continue;
+      const diagPos = DIAGONAL[info.occPos[0]];
+      const diagSeat = tables.get(tid).find(s => s.position === diagPos);
+      if (!diagSeat || diagSeat.occupiedBy !== null) continue;
+      const d = Math.hypot(info.cx - sx, info.cy - sy);
+      if (d < bestOneDist) { bestOneDist = d; bestDiagSeat = diagSeat; }
+    }
+    if (bestDiagSeat) return bestDiagSeat;
+
+    // ── 阶段 C：兜底，所有剩余空座按距离最近 ──
+    let fallback = null, minFallbackDist = Infinity;
+    for (const s of this.seats) {
+      if (s.occupiedBy !== null) continue;
+      const d = Math.hypot(s.x - sx, s.y - sy);
+      if (d < minFallbackDist) { minFallbackDist = d; fallback = s; }
+    }
+    return fallback;
   }
 
   findFreeSeat() {

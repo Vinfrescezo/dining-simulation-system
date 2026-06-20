@@ -68,13 +68,24 @@ public class SimulationService {
         int maxQueue = config.getMaxQueueLength() > 0 ? config.getMaxQueueLength() : 20;
         simulationConfig.setMaxQueueLength(maxQueue);
 
-        if (config.getOrderingTime() > 0) simulationConfig.setOrderingMu(config.getOrderingTime());
-        if (config.getEatingTime() > 0) simulationConfig.setEatingMu(config.getEatingTime());
-        if (config.getMealPeriod() != null && !config.getMealPeriod().isBlank()) {
-            simulationConfig.setMealPeriod(config.getMealPeriod());
+        String mealPeriod = (config.getMealPeriod() != null && !config.getMealPeriod().isBlank())
+                ? config.getMealPeriod() : "LUNCH";
+        simulationConfig.setMealPeriod(mealPeriod);
+
+        // 时段差异化（基准为 LUNCH 中午高峰；DINNER 晚间高峰人少 35%、用餐久 60%、打饭节奏在 StateMachine 里慢 15%）
+        boolean isDinner = "DINNER".equals(mealPeriod);
+        int studentCount = config.getStudentCount();
+        if (isDinner) {
+            studentCount = (int) Math.round(studentCount * 0.65);
         }
 
-        this.resetSimulation(config.getStudentCount(), windows, duration, seats);
+        if (config.getOrderingTime() > 0) simulationConfig.setOrderingMu(config.getOrderingTime());
+        if (config.getEatingTime() > 0) {
+            double baseEatingMu = config.getEatingTime();
+            simulationConfig.setEatingMu(isDinner ? baseEatingMu * 1.6 : baseEatingMu);
+        }
+
+        this.resetSimulation(studentCount, windows, duration, seats);
 
         // Run entire simulation synchronously — no WebSocket / scheduled ticking needed.
         while (!isFinished()) {

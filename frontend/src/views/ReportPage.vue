@@ -56,7 +56,7 @@ const reportInfoItems = computed(() => [
   ['报告来源', reportSource.value],
   ['生成节点', reportType.value],
   ['到达模型', props.config.mealPeriod === 'DINNER' ? '晚间高峰' : '中午高峰'],
-  ['窗口服务模型', `约 ${props.config.orderingTime ?? 28} 秒/人`],
+  ['窗口服务模型', '按菜品复杂度独立计算（18-50 秒/人）'],
   ['用餐时长', `约 ${Math.round((props.config.eatingTime ?? 480) / 60)} 分钟`],
   ['流失口径', '仅统计窗口队列满载导致的放弃就餐'],
   ['时间换算', '1 Tick ≈ 1 秒']

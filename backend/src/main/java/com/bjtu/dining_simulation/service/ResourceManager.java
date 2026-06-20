@@ -34,28 +34,31 @@ public class ResourceManager {
         final int rank;
         final double popularity;
         final double serviceWeight;
+        final int baseServiceSeconds; // 该菜品的基础打饭时长（秒/人），按真实备餐复杂度设置
 
-        DishProfile(String dish, int rank, double popularity, double serviceWeight) {
+        DishProfile(String dish, int rank, double popularity, double serviceWeight, int baseServiceSeconds) {
             this.dish = dish;
             this.rank = rank;
             this.popularity = popularity;
             this.serviceWeight = serviceWeight;
+            this.baseServiceSeconds = baseServiceSeconds;
         }
     }
 
+    // baseServiceSeconds：根据菜品制作工序设置 —— 现炒最慢，盛汤最快
     private static final List<DishProfile> HOT_DISHES = List.of(
-            new DishProfile("麻辣香锅", 1, 5.0, 1.8),
-            new DishProfile("炙烤五花肉", 2, 4.7, 1.4),
-            new DishProfile("土豆泥拌饭", 3, 4.3, 0.9),
-            new DishProfile("北京烤鸭", 4, 4.1, 1.6),
-            new DishProfile("云南米线", 5, 3.8, 0.8),
-            new DishProfile("兰州拉面", 6, 3.6, 0.7),
-            new DishProfile("黄焖鸡米饭", 7, 3.3, 1.0),
-            new DishProfile("番茄牛腩饭", 8, 3.0, 1.1),
-            new DishProfile("鸡排饭", 9, 2.8, 0.8),
-            new DishProfile("轻食沙拉", 10, 2.2, 0.5),
-            new DishProfile("自选小炒", 11, 2.0, 1.3),
-            new DishProfile("盖浇饭", 12, 1.8, 0.6)
+            new DishProfile("麻辣香锅",   1, 5.0, 1.8, 50),  // 现炒，最慢
+            new DishProfile("炙烤五花肉", 2, 4.7, 1.4, 38),  // 烤+切
+            new DishProfile("土豆泥拌饭", 3, 4.3, 0.9, 22),  // 已备好，盛
+            new DishProfile("北京烤鸭",   4, 4.1, 1.6, 42),  // 切片+卷
+            new DishProfile("云南米线",   5, 3.8, 0.8, 28),  // 烫煮米线
+            new DishProfile("兰州拉面",   6, 3.6, 0.7, 30),  // 拉面+加汤
+            new DishProfile("黄焖鸡米饭", 7, 3.3, 1.0, 26),  // 砂锅加饭
+            new DishProfile("番茄牛腩饭", 8, 3.0, 1.1, 28),  // 浇头+饭
+            new DishProfile("鸡排饭",     9, 2.8, 0.8, 24),  // 取炸物
+            new DishProfile("轻食沙拉",  10, 2.2, 0.5, 18),  // 自助拼盘
+            new DishProfile("自选小炒",  11, 2.0, 1.3, 45),  // 现炒
+            new DishProfile("盖浇饭",     12, 1.8, 0.6, 20)   // 浇头+饭
     );
 
     public ResourceManager() {
@@ -98,6 +101,7 @@ public class ResourceManager {
             w.setPopularityScore(profile.popularity);
             w.setPreferenceWeight(profile.popularity);
             w.setServiceWeight(profile.serviceWeight + random.nextDouble() * 0.25);
+            w.setBaseServiceSeconds(profile.baseServiceSeconds);
             this.windows.add(w);
         }
 
@@ -210,54 +214,110 @@ public class ResourceManager {
         return best;
     }
 
+    /**
+     * 找最佳座位（三阶段优先策略）：
+     *   阶段 A：还有完全空桌 → 找距离学生最近的空桌，再在桌内选距离最近的位置（先选桌后选位）
+     *   阶段 B：所有桌至少 1 人 → 找最近的"1 人桌（且斜对角可用）"，坐它的斜对角位置
+     *   阶段 C：所有桌至少 2 人 → 兜底，所有剩余空座中选距离最近的
+     * 严格按距离最近，不再加权。
+     */
     private Seat findBestSeat(double studentX, double studentY) {
-        double maxDist = Math.hypot(CANVAS_WIDTH, CANVAS_HEIGHT);
-        double saTop = seatArea.get("y");
-        double saH = seatArea.get("h");
+        // 1. 按 tableId 分组所有座位
+        Map<String, List<Seat>> seatsByTable = new HashMap<>();
+        for (Seat seat : seats) {
+            seatsByTable.computeIfAbsent(seat.getTableId(), k -> new ArrayList<>()).add(seat);
+        }
 
+        // 2. 计算每张桌的中心、占用人数、占用位置列表
+        Map<String, double[]> tableCenter = new HashMap<>();
         Map<String, Integer> tableOccupancy = new HashMap<>();
-        for (Seat seat : seats) {
-            tableOccupancy.merge(seat.getTableId(), (seat.isOccupied() || seat.isReserved()) ? 1 : 0, Integer::sum);
-        }
-
-        List<Seat> candidates = new ArrayList<>();
-        List<Double> scores = new ArrayList<>();
-
-        for (Seat seat : seats) {
-            if (seat.isOccupied() || seat.isReserved()) continue;
-
-            double dist = Math.hypot(seat.getX() - studentX, seat.getY() - studentY);
-            double distScore = 1.0 - dist / maxDist;
-
-            double rowRatio = (seat.getY() - saTop) / saH;
-            double depthScore = 1.0 - rowRatio * 0.7;
-
-            int occ = tableOccupancy.getOrDefault(seat.getTableId(), 0);
-            double socialScore;
-            if (occ == 0) {
-                socialScore = 1.0;
-            } else {
-                boolean isDiag = seats.stream()
-                        .filter(other -> other.getTableId().equals(seat.getTableId()))
-                        .filter(other -> other.isOccupied() || other.isReserved())
-                        .allMatch(other -> seat.getPosition().equals(DIAGONAL.get(other.getPosition())));
-                socialScore = isDiag ? 0.7 : 0.3 - occ * 0.1;
+        Map<String, List<String>> tableOccupiedPositions = new HashMap<>();
+        for (Map.Entry<String, List<Seat>> entry : seatsByTable.entrySet()) {
+            String tid = entry.getKey();
+            List<Seat> ts = entry.getValue();
+            double cx = 0, cy = 0;
+            int occ = 0;
+            List<String> occPos = new ArrayList<>();
+            for (Seat s : ts) {
+                cx += s.getX();
+                cy += s.getY();
+                if (s.isOccupied() || s.isReserved()) {
+                    occ++;
+                    occPos.add(s.getPosition());
+                }
             }
-
-            double score = distScore * 0.35 + depthScore * 0.3 + socialScore * 0.35;
-            candidates.add(seat);
-            scores.add(score);
+            tableCenter.put(tid, new double[]{cx / ts.size(), cy / ts.size()});
+            tableOccupancy.put(tid, occ);
+            tableOccupiedPositions.put(tid, occPos);
         }
 
-        if (candidates.isEmpty()) return null;
+        // ── 阶段 A：找最近的完全空桌 ──
+        String bestEmptyTable = null;
+        double bestEmptyDist = Double.MAX_VALUE;
+        for (String tid : seatsByTable.keySet()) {
+            if (tableOccupancy.get(tid) != 0) continue;
+            double[] c = tableCenter.get(tid);
+            double d = Math.hypot(c[0] - studentX, c[1] - studentY);
+            if (d < bestEmptyDist) {
+                bestEmptyDist = d;
+                bestEmptyTable = tid;
+            }
+        }
+        if (bestEmptyTable != null) {
+            // 在这张空桌的 4 个位置中，选距离学生最近的
+            Seat closest = null;
+            double minDist = Double.MAX_VALUE;
+            for (Seat s : seatsByTable.get(bestEmptyTable)) {
+                if (s.isOccupied() || s.isReserved()) continue; // 理论上不会发生（整桌空）
+                double d = Math.hypot(s.getX() - studentX, s.getY() - studentY);
+                if (d < minDist) {
+                    minDist = d;
+                    closest = s;
+                }
+            }
+            if (closest != null) return closest;
+        }
 
-        Integer[] indices = new Integer[candidates.size()];
-        for (int i = 0; i < indices.length; i++) indices[i] = i;
-        Arrays.sort(indices, (a, b) -> Double.compare(scores.get(b), scores.get(a)));
+        // ── 阶段 B：找最近的"1 人桌且斜对角可用" ──
+        String bestOneTable = null;
+        double bestOneDist = Double.MAX_VALUE;
+        Seat bestDiagSeat = null;
+        for (String tid : seatsByTable.keySet()) {
+            if (tableOccupancy.get(tid) != 1) continue;
+            String occupiedPos = tableOccupiedPositions.get(tid).get(0);
+            String diagPos = DIAGONAL.get(occupiedPos);
+            if (diagPos == null) continue;
+            // 找该桌的对角座位
+            Seat diagSeat = null;
+            for (Seat s : seatsByTable.get(tid)) {
+                if (diagPos.equals(s.getPosition())) {
+                    diagSeat = s;
+                    break;
+                }
+            }
+            if (diagSeat == null || diagSeat.isOccupied() || diagSeat.isReserved()) continue;
+            double[] c = tableCenter.get(tid);
+            double d = Math.hypot(c[0] - studentX, c[1] - studentY);
+            if (d < bestOneDist) {
+                bestOneDist = d;
+                bestOneTable = tid;
+                bestDiagSeat = diagSeat;
+            }
+        }
+        if (bestDiagSeat != null) return bestDiagSeat;
 
-        int topN = Math.min(candidates.size(), Math.max(3, (int) Math.ceil(candidates.size() * 0.15)));
-        int pick = random.nextInt(topN);
-        return candidates.get(indices[pick]);
+        // ── 阶段 C：兜底，所有剩余空座按距离最近选 ──
+        Seat fallback = null;
+        double minFallbackDist = Double.MAX_VALUE;
+        for (Seat s : seats) {
+            if (s.isOccupied() || s.isReserved()) continue;
+            double d = Math.hypot(s.getX() - studentX, s.getY() - studentY);
+            if (d < minFallbackDist) {
+                minFallbackDist = d;
+                fallback = s;
+            }
+        }
+        return fallback;
     }
 
     public void markReservedSeatOccupied(Student s) {

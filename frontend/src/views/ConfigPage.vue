@@ -30,7 +30,7 @@ const PRESETS = [
     simDurationTick: 5400,
     maxQueueCapacity: 20,
     orderingTime: 28,
-    eatingTime: 480
+    eatingTime: 720
   },
   {
     key: 'xuehuo',
@@ -42,7 +42,7 @@ const PRESETS = [
     simDurationTick: 5400,
     maxQueueCapacity: 20,
     orderingTime: 28,
-    eatingTime: 480
+    eatingTime: 720
   },
   {
     key: 'xuesi',
@@ -53,8 +53,8 @@ const PRESETS = [
     seatCount: 140,
     simDurationTick: 5400,
     maxQueueCapacity: 18,
-    orderingTime: 32,
-    eatingTime: 420
+    orderingTime: 30,
+    eatingTime: 660
   },
   {
     key: 'liuyuan',
@@ -65,8 +65,8 @@ const PRESETS = [
     seatCount: 80,
     simDurationTick: 5400,
     maxQueueCapacity: 15,
-    orderingTime: 35,
-    eatingTime: 540
+    orderingTime: 32,
+    eatingTime: 780
   }
 ];
 
@@ -215,12 +215,6 @@ async function submit() {
             <small>超过后学生计入流失。</small>
           </div>
           <div class="field">
-            <label for="orderingTime">打饭时长（秒/人）</label>
-            <input id="orderingTime" v-model.number="form.orderingTime" type="number" min="5" max="120" @input="markCustom" />
-            <small>单个学生在窗口打饭的平均耗时。</small>
-            <span class="error">{{ errors.orderingTime }}</span>
-          </div>
-          <div class="field">
             <label for="eatingTime">用餐时长（秒/人）</label>
             <input id="eatingTime" v-model.number="form.eatingTime" type="number" min="60" max="1800" @input="markCustom" />
             <small>学生坐下后的平均就餐时长，影响座位周转。</small>
@@ -232,7 +226,7 @@ async function submit() {
               <option value="LUNCH">中午高峰</option>
               <option value="DINNER">晚间高峰</option>
             </select>
-            <small>影响 AI 智能分析报告的语境描述（不改变仿真模型）。</small>
+            <small>晚间高峰：自动 学生数×0.65、用餐时长×1.6、打饭节奏×1.15，模拟夜晚少人但悠闲。</small>
           </div>
           <div class="field">
             <label for="renderThreshold">渲染阈值</label>

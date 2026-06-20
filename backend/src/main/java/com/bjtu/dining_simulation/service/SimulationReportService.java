@@ -125,6 +125,7 @@ public class SimulationReportService {
             wp.setDishName(w.getDishName());
             wp.setPopularityRank(w.getPopularityRank());
             wp.setPopularityScore(Math.round(w.getPopularityScore() * 100.0) / 100.0);
+            wp.setBaseServiceTimeSeconds(w.getBaseServiceSeconds());
             wp.setAvgQueueLength(Math.round(avgQueueLength * 100.0) / 100.0);
             wp.setAvgWaitTime(Math.round(w.getAvgQueueTimeIncludingCurrent(simService.getGlobalTickCounter()) * 100.0) / 100.0);
             wp.setPeakQueueLength(w.getPeakQueueLength());

@@ -106,9 +106,15 @@ public class StudentStateMachine {
                     next.setY(win.getY() + 28);
                     eventLog.record(ctx.getGlobalTickCounter(), "ORDER_START", next.getId(), win.getId(), win.getX(), win.getY() + 28);
 
+                    // 每窗口独立打饭时长 = 菜品基础时长 × 用户倍率 × 时段倍率
+                    // 用户倍率 = orderingMu / 28（28 是中位窗口的基础时长，作为基准）
+                    // 时段倍率：DINNER 比 LUNCH 慢 15%（晚上挑菜多）
+                    double userMultiplier = config.getOrderingMu() / 28.0;
+                    double periodMultiplier = "DINNER".equals(config.getMealPeriod()) ? 1.15 : 1.0;
+                    double effectiveMu = win.getBaseServiceSeconds() * userMultiplier * periodMultiplier;
                     int orderingTime = moveEngine.calculateNormalTime(
-                            config.getOrderingMu() + win.getServiceWeight() * 2.0,
-                            config.getOrderingSigma(),
+                            effectiveMu,
+                            Math.max(3.0, effectiveMu * 0.15),
                             5);
                     next.setOrderingDuration(orderingTime);
                     next.setRemainingTime(orderingTime);

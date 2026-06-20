@@ -16,11 +16,14 @@ public class SimulationConfig {
 
     private double orderingMu = 28.0;
     private final double orderingSigma = 6.0;
-    private double eatingMu = 480.0;
-    private final double eatingSigma = 90.0;
+    private double eatingMu = 720.0;
+    private final double eatingSigma = 120.0;
 
     private final double moveSpeed = 14.0;
     private int maxQueueLength = 20;
-    /** 就餐时段：LUNCH=中午高峰，DINNER=晚间高峰（仅供 AI 报告语境使用，不影响仿真模型） */
+    /**
+     * 就餐时段：LUNCH=中午高峰，DINNER=晚间高峰
+     * 差异化：DINNER 自动 学生数×0.65、用餐时长×1.6、打饭节奏×1.15
+     */
     private String mealPeriod = "LUNCH";
 }

@@ -32,6 +32,8 @@ public class Window {
     // 窗口差异：preferenceWeight 越高越受欢迎，serviceWeight 越高代表服务略慢
     private double preferenceWeight = 0.0;
     private double serviceWeight = 0.0;
+    // 该窗口的基础打饭时长（秒/人），由菜品制作复杂度决定
+    private int baseServiceSeconds = 28;
 
     public Window(String id, double x, double y, Queue<Student> queue) {
         this.id = id;
